@@ -1,0 +1,22 @@
+# Environment variables
+.env
+
+# SQLite conversation log (ephemeral on Render)
+conversations.db
+replica.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+
+# Sentence-transformers model cache (downloaded at runtime)
+# (do NOT ignore vectors/ — FAISS index must be committed)
