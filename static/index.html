@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chicago City Services Assistant</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────────── */
+    header {
+      background: #003F87;
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,.25);
+    }
+
+    .flag {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .flag-stripe { width: 36px; height: 8px; background: #fff; }
+    .flag-stripe.blue { background: #003F87; border: 1px solid #fff; }
+
+    header h1 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
+    header p  { font-size: 0.78rem; opacity: .8; margin-top: 2px; }
+
+    .header-title { flex: 1; }
+
+    /* ── Language selector ────────────────────────────────────────────── */
+    #lang-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    #lang-wrap label {
+      font-size: 0.75rem;
+      opacity: .8;
+      white-space: nowrap;
+    }
+    #lang-select {
+      background: rgba(255,255,255,.15);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.4);
+      border-radius: 6px;
+      padding: 5px 28px 5px 10px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      /* chevron */
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      transition: background-color .15s, border-color .15s;
+    }
+    #lang-select:hover  { background-color: rgba(255,255,255,.25); border-color: rgba(255,255,255,.7); }
+    #lang-select:focus  { border-color: #fff; }
+    #lang-select option { background: #003F87; color: #fff; }
+
+    /* ── Two-column layout ────────────────────────────────────────────── */
+    #layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Left info panel (1/3) ────────────────────────────────────────── */
+    #info-panel {
+      width: 33.333%;
+      flex-shrink: 0;
+      background: #fff;
+      border-right: 1px solid #e2e8f0;
+      overflow-y: auto;
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .info-section h2 {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #003F87;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #e8f0fe;
+    }
+
+    .info-section p,
+    .info-section li {
+      font-size: 0.875rem;
+      color: #4a5568;
+      line-height: 1.6;
+    }
+
+    .info-section ul,
+    .info-section ol {
+      padding-left: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* ── Do / Don't lists ─────────────────────────────────────────────── */
+    .do-list li::marker   { color: #276749; }
+    .dont-list li::marker { color: #c53030; }
+
+    .do-list li   { color: #276749; }
+    .dont-list li { color: #c53030; }
+
+    /* ── Try-asking chips ─────────────────────────────────────────────── */
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .suggestion-btn {
+      background: #e8f0fe;
+      border: 1px solid #c3d3f7;
+      color: #003F87;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.775rem;
+      cursor: pointer;
+      transition: background .15s;
+      text-align: left;
+    }
+    .suggestion-btn:hover { background: #c3d3f7; }
+
+    /* ── Data notice badge ────────────────────────────────────────────── */
+    .data-notice {
+      background: #fffbea;
+      border: 1px solid #f6e05e;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.78rem;
+      color: #744210;
+      line-height: 1.5;
+    }
+
+    /* ── Right chat panel (2/3) ───────────────────────────────────────── */
+    #chat-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #f0f4f8;
+    }
+
+    /* ── Chat area ────────────────────────────────────────────────────── */
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    /* ── Message bubbles ──────────────────────────────────────────────── */
+    .msg {
+      display: flex;
+      flex-direction: column;
+      max-width: 76%;
+    }
+    .msg.user  { align-self: flex-end; align-items: flex-end; }
+    .msg.bot   { align-self: flex-start; align-items: flex-start; }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 18px;
+      line-height: 1.55;
+      font-size: 0.92rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user .bubble {
+      background: #003F87;
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.bot .bubble {
+      background: #fff;
+      color: #1a202c;
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.12);
+    }
+
+    /* ── Inline links inside answer bubbles ──────────────────────────── */
+    .msg.bot .bubble a {
+      color: #003F87;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+    .msg.bot .bubble a:hover { opacity: .75; }
+
+    /* ── Sources ──────────────────────────────────────────────────────── */
+    .sources {
+      margin-top: 8px;
+      font-size: 0.75rem;
+      color: #4a5568;
+    }
+    .sources strong { display: block; margin-bottom: 4px; }
+    .sources a {
+      color: #003F87;
+      text-decoration: none;
+      display: block;
+      margin-top: 2px;
+    }
+    .sources a:hover { text-decoration: underline; }
+
+    /* ── Disclaimer ───────────────────────────────────────────────────── */
+    .disclaimer {
+      margin-top: 6px;
+      font-size: 0.7rem;
+      color: #718096;
+      font-style: italic;
+    }
+
+    /* Clarifying question bubble */
+    .msg.clarification .bubble {
+      background: #fffbea;
+      border: 1px solid #f6e05e;
+      color: #744210;
+    }
+
+    /* Limit-reached bubble */
+    .msg.limit .bubble {
+      background: #fff5f5;
+      border: 1px solid #feb2b2;
+      color: #742a2a;
+    }
+
+    /* ── Typing indicator ─────────────────────────────────────────────── */
+    .typing .bubble {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      padding: 14px 18px;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      background: #a0aec0;
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+    .dot:nth-child(2) { animation-delay: .2s; }
+    .dot:nth-child(3) { animation-delay: .4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40%            { transform: translateY(-6px); }
+    }
+
+    /* ── Empty-state prompt ───────────────────────────────────────────── */
+    .empty-state {
+      align-self: center;
+      margin: auto;
+      text-align: center;
+      color: #a0aec0;
+      font-size: 0.88rem;
+      user-select: none;
+    }
+    .empty-state svg { margin-bottom: 10px; opacity: .4; }
+
+    /* ── Input bar ────────────────────────────────────────────────────── */
+    #input-bar {
+      display: flex;
+      gap: 10px;
+      padding: 14px 20px;
+      background: #fff;
+      border-top: 1px solid #e2e8f0;
+      flex-shrink: 0;
+    }
+    #question {
+      flex: 1;
+      border: 1px solid #cbd5e0;
+      border-radius: 24px;
+      padding: 10px 18px;
+      font-size: 0.92rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    #question:focus { border-color: #003F87; }
+    #send {
+      background: #003F87;
+      color: #fff;
+      border: none;
+      border-radius: 24px;
+      padding: 10px 22px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+      flex-shrink: 0;
+    }
+    #send:hover    { background: #00306a; }
+    #send:disabled { background: #a0aec0; cursor: default; }
+
+    /* ── Alderman feedback strip ─────────────────────────────────────── */
+    #feedback-strip {
+      flex-shrink: 0;
+      background: #eef3fb;
+      border-top: 1px solid #c3d3f7;
+      margin-bottom: 1rem;
+      padding-bottom: 1rem;
+      overflow: hidden;
+      transition: max-height .25s ease;
+      max-height: 44px;   /* collapsed height */
+    }
+    #feedback-strip.open { max-height: 200px; }
+
+    #feedback-collapsed {
+      display: flex;
+      align-items: center;
+      padding: 10px 20px;
+      font-size: 0.8rem;
+      color: #4a5568;
+      gap: 10px;
+    }
+    #feedback-collapsed span { flex: 1; }
+
+    .thumb-btn {
+      background: none;
+      border: 1px solid #cbd5e0;
+      border-radius: 8px;
+      padding: 3px 10px;
+      font-size: 1rem;
+      line-height: 1.4;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    .thumb-btn:hover       { background: #e8f0fe; border-color: #003F87; }
+    .thumb-btn.active-up   { background: #d1fae5; border-color: #276749; }
+    .thumb-btn.active-down { background: #fee2e2; border-color: #c53030; }
+
+    #feedback-form {
+      display: none;
+      padding: 4px 20px 14px;
+      gap: 6px;
+      flex-direction: column;
+    }
+    #feedback-strip.open #feedback-form      { display: flex; }
+    #feedback-strip.open #feedback-collapsed { display: none; }
+
+    #feedback-subtext {
+      font-size: 0.78rem;
+      color: #718096;
+      margin-bottom: 2px;
+    }
+
+    #feedback-note {
+      width: 100%;
+      border: 1px solid #c3d3f7;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      resize: none;
+      height: 70px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .2s;
+    }
+    #feedback-note:focus { border-color: #003F87; }
+
+    #feedback-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .fb-btn {
+      border-radius: 20px;
+      padding: 6px 18px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    #feedback-cancel {
+      background: none;
+      border: 1px solid #cbd5e0;
+      color: #4a5568;
+    }
+    #feedback-cancel:hover { background: #f0f4f8; }
+    #feedback-send {
+      background: #003F87;
+      border: none;
+      color: #fff;
+    }
+    #feedback-send:hover    { background: #00306a; }
+    #feedback-send:disabled { background: #a0aec0; cursor: default; }
+
+    /* ── Scrollbars ───────────────────────────────────────────────────── */
+    #chat::-webkit-scrollbar,
+    #info-panel::-webkit-scrollbar { width: 5px; }
+    #chat::-webkit-scrollbar-thumb,
+    #info-panel::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="flag">
+    <div class="flag-stripe blue"></div>
+    <div class="flag-stripe"></div>
+    <div class="flag-stripe blue"></div>
+  </div>
+  <div class="header-title">
+    <h1>Chicago City Services Chat Assistant</h1>
+    <p>Powered by chicago.gov, cps.edu, and chicagoparkdistrict.com</p>
+  </div>
+
+  <div id="lang-wrap">
+    <label for="lang-select" id="lang-label">Language</label>
+    <select id="lang-select">
+      <option value="en" selected>English</option>
+      <option value="es">Español</option>
+      <option value="pl">Polski</option>
+      <option value="zh">中文</option>
+      <option value="ar">العربية</option>
+      <option value="tl">Tagalog</option>
+      <option value="hi">हिन्दी</option>
+    </select>
+  </div>
+</header>
+
+<div id="layout">
+
+  <!-- ── Left info panel (1/3) ─────────────────────────────────────── -->
+  <aside id="info-panel">
+
+    <div class="info-section">
+      <h2>About This Tool</h2>
+      <p>This is a helper tool that answers questions about <strong>City of Chicago services</strong>. It covers city departments, Chicago Public Schools, and the Chicago Park District.</p>
+      <p style="margin-top:8px">All answers come from <strong>chicago.gov</strong>, <strong>cps.edu</strong>, and <strong>chicagoparkdistrict.com</strong>. Think of it as a smart search through city websites.</p>
+    </div>
+
+    <div class="data-notice">
+      <strong>Data notice:</strong> This tool uses limited saved snapshots of chicago.gov, cps.edu, and chicagoparkdistrict.com as of 4/11/26. The answers show the date when the information was last collected. For the most current details, follow the source links in each answer.
+    </div>
+
+    <div class="info-section">
+      <h2>How to Use It</h2>
+      <ol>
+        <li>Type your question in plain English — no special words needed.</li>
+        <li>Hit <strong>Send</strong> or press <strong>Enter</strong>.</li>
+        <li>Read the answer and check the source links if you want to learn more.</li>
+        <li>Ask follow-up questions any time!</li>
+      </ol>
+    </div>
+
+    <div class="info-section">
+      <h2>Example Questions to Ask</h2>
+      <div class="suggestions">
+        <button class="suggestion-btn" onclick="ask(this)">How do I get a business license?</button>
+        <button class="suggestion-btn" onclick="ask(this)">How do I enroll my child in CPS?</button>
+        <button class="suggestion-btn" onclick="ask(this)">What free programs does the Park District offer?</button>
+        <button class="suggestion-btn" onclick="ask(this)">Where can I find free job training programs?</button>
+      </div>
+    </div>
+
+    <div class="info-section">
+      <h2>What It Can't Do</h2>
+      <ul class="dont-list">
+        <li>It cannot access your personal city accounts or records.</li>
+        <li>It cannot process payments or applications.</li>
+        <li>It cannot answer questions unrelated to Chicago city services, schools, or parks.</li>
+        <li>It may not have the very latest updates — always verify with the official site for urgent matters.</li>
+      </ul>
+    </div>
+
+  </aside>
+
+  <!-- ── Right chat panel (2/3) ─────────────────────────────────────── -->
+  <div id="chat-panel">
+    <div id="chat">
+      <div class="empty-state">
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <p>Ask a question to get started.</p>
+      </div>
+    </div>
+
+    <div id="input-bar">
+      <input id="question" type="text" placeholder="Ask about Chicago city services…" autocomplete="off" />
+      <button id="send" onclick="sendMessage()">Send</button>
+    </div>
+
+    <!-- ── Feedback strip ───────────────────────────────────────────── -->
+    <div id="feedback-strip">
+      <div id="feedback-collapsed">
+        <span>Find this helpful?</span>
+        <button class="thumb-btn" id="thumb-up"   onclick="chooseFeedback('up')">👍</button>
+        <button class="thumb-btn" id="thumb-down" onclick="chooseFeedback('down')">👎</button>
+      </div>
+      <div id="feedback-form">
+        <p id="feedback-subtext"></p>
+        <textarea id="feedback-note" placeholder="" rows="3"></textarea>
+        <div id="feedback-actions">
+          <button class="fb-btn" id="feedback-cancel" onclick="closeFeedback()">Cancel</button>
+          <button class="fb-btn" id="feedback-send"   onclick="submitFeedback()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const chatEl    = document.getElementById("chat");
+  const inputEl   = document.getElementById("question");
+  const sendBtn   = document.getElementById("send");
+  const langSel   = document.getElementById("lang-select");
+
+  const sessionId = crypto.randomUUID();   // unique per page load; sent with every /chat request
+  let consecutiveClarifyCount = 0;
+  let conversationHistory = [];   // [{role:"user"|"assistant", content:"..."}], cleared on tab close
+
+  // ── UI translations ──────────────────────────────────────────────────────
+  const UI_STRINGS = {
+    en: { placeholder: "Ask about Chicago city services…", send: "Send",
+          empty: "Ask a question to get started.", langLabel: "Language",
+          sources: "Sources", serverError: "Could not reach the server. Make sure api.py is running." },
+    es: { placeholder: "Pregunte sobre los servicios de la ciudad de Chicago…", send: "Enviar",
+          empty: "Haga una pregunta para comenzar.", langLabel: "Idioma",
+          sources: "Fuentes", serverError: "No se pudo conectar al servidor. Asegúrese de que api.py esté en ejecución." },
+    pl: { placeholder: "Zapytaj o usługi miasta Chicago…", send: "Wyślij",
+          empty: "Zadaj pytanie, aby zacząć.", langLabel: "Język",
+          sources: "Źródła", serverError: "Nie można połączyć się z serwerem. Upewnij się, że api.py działa." },
+    zh: { placeholder: "询问芝加哥市政服务…", send: "发送",
+          empty: "提问以开始。", langLabel: "语言",
+          sources: "来源", serverError: "无法连接服务器，请确保 api.py 正在运行。" },
+    ar: { placeholder: "اسأل عن خدمات مدينة شيكاغو…", send: "إرسال",
+          empty: "اطرح سؤالاً للبدء.", langLabel: "اللغة",
+          sources: "المصادر", serverError: "تعذّر الوصول إلى الخادم. تأكد من تشغيل api.py." },
+    tl: { placeholder: "Magtanong tungkol sa mga serbisyo ng lungsod ng Chicago…", send: "Ipadala",
+          empty: "Magtanong para makapagsimula.", langLabel: "Wika",
+          sources: "Mga Pinagkukunan", serverError: "Hindi makakonekta sa server. Siguraduhing tumatakbo ang api.py." },
+    hi: { placeholder: "शिकागो शहर की सेवाओं के बारे में पूछें…", send: "भेजें",
+          empty: "शुरू करने के लिए कोई प्रश्न पूछें।", langLabel: "भाषा",
+          sources: "स्रोत", serverError: "सर्वर से कनेक्ट नहीं हो सका। सुनिश्चित करें कि api.py चल रहा है।" },
+  };
+
+  function applyLang(lang) {
+    const s = UI_STRINGS[lang] || UI_STRINGS.en;
+    inputEl.placeholder = s.placeholder;
+    sendBtn.textContent = s.send;
+    document.getElementById("lang-label").textContent = s.langLabel;
+    const emptyP = chatEl.querySelector(".empty-state p");
+    if (emptyP) emptyP.textContent = s.empty;
+    // RTL support
+    document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
+  }
+
+  langSel.addEventListener("change", () => applyLang(langSel.value));
+
+  // Submit on Enter
+  inputEl.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Suggestion button click
+  function ask(btn) {
+    inputEl.value = btn.textContent;
+    sendMessage();
+  }
+
+  function sendMessage() {
+    const question = inputEl.value.trim();
+    if (!question) return;
+    const lang = langSel.value;
+
+    // Remove empty-state placeholder if present
+    const empty = chatEl.querySelector(".empty-state");
+    if (empty) empty.remove();
+
+    appendMessage("user", question);
+    inputEl.value = "";
+    setLoading(true);
+
+    const typingEl = appendTyping();
+
+    fetch("/chat", {
+      method : "POST",
+      headers: { "Content-Type": "application/json" },
+      body   : JSON.stringify({
+        question,
+        lang,
+        session_id    : sessionId,
+        clarify_count : consecutiveClarifyCount,
+        history       : conversationHistory,
+      }),
+    })
+    .then(r => r.json())
+    .then(data => {
+      typingEl.remove();
+      if (data.error) {
+        consecutiveClarifyCount = 0;
+        appendBotMessage("Sorry, something went wrong: " + data.error, [], "", "answer");
+      } else {
+        // Record this turn in history
+        conversationHistory.push({ role: "user",      content: question     });
+        conversationHistory.push({ role: "assistant",  content: data.answer  });
+
+        if (data.type === "clarification") {
+          consecutiveClarifyCount += 1;
+        } else {
+          consecutiveClarifyCount = 0;
+        }
+        if (data.type === "limit") {
+          appendBotMessage(data.answer, [], "", "limit");
+        } else {
+          appendBotMessage(data.answer, data.sources, data.disclaimer, data.type);
+        }
+      }
+    })
+    .catch(() => {
+      typingEl.remove();
+      const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
+      appendBotMessage(s.serverError, [], "", "answer");
+    })
+    .finally(() => setLoading(false));
+  }
+
+  function appendMessage(role, text) {
+    const msg    = document.createElement("div");
+    msg.className = `msg ${role}`;
+    const bubble  = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    msg.appendChild(bubble);
+    chatEl.appendChild(msg);
+    scrollToBottom();
+    return msg;
+  }
+
+  function linkify(text) {
+    // Escape HTML, then wrap bare URLs in anchor tags
+    const escaped = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    return escaped.replace(
+      /https?:\/\/[^\s<>"]+/g,
+      url => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`
+    );
+  }
+
+  function appendBotMessage(answer, sources, disclaimer, type) {
+    const isClarification = (type === "clarification");
+    const isLimit = (type === "limit");
+    const msg    = document.createElement("div");
+    msg.className = isLimit ? "msg bot limit" : isClarification ? "msg bot clarification" : "msg bot";
+
+    const bubble  = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.innerHTML = linkify(answer);
+    msg.appendChild(bubble);
+
+    // Sources (omit for clarifying questions and limit messages)
+    if (!isClarification && !isLimit && sources && sources.length > 0) {
+      const src = document.createElement("div");
+      src.className = "sources";
+      const srcLabel = (UI_STRINGS[langSel.value] || UI_STRINGS.en).sources;
+      src.innerHTML = `<strong>${srcLabel}</strong>` +
+        sources.map(s =>
+          `<a href="${s.url}" target="_blank" rel="noopener">${s.title}</a>`
+        ).join("");
+      msg.appendChild(src);
+    }
+
+    // Disclaimer (omit for clarifying questions and limit messages)
+    if (!isClarification && !isLimit && disclaimer) {
+      const d = document.createElement("div");
+      d.className = "disclaimer";
+      d.textContent = disclaimer;
+      msg.appendChild(d);
+    }
+
+    chatEl.appendChild(msg);
+    scrollToBottom();
+  }
+
+  function appendTyping() {
+    const msg    = document.createElement("div");
+    msg.className = "msg bot typing";
+    msg.innerHTML = `<div class="bubble">
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+    </div>`;
+    chatEl.appendChild(msg);
+    scrollToBottom();
+    return msg;
+  }
+
+  function setLoading(on) {
+    sendBtn.disabled = on;
+    inputEl.disabled = on;
+  }
+
+  function scrollToBottom() {
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  // ── Feedback strip ───────────────────────────────────────────────────────
+  const feedbackStrip   = document.getElementById("feedback-strip");
+  const feedbackNote    = document.getElementById("feedback-note");
+  const feedbackSend    = document.getElementById("feedback-send");
+  const feedbackSubtext = document.getElementById("feedback-subtext");
+
+  let currentFeedbackType = null;   // 'up' | 'down'
+
+  const FEEDBACK_CONFIG = {
+    up:   { subtext: "Tell us why it's helpful (optional).",
+            sendLabel: "Share Feedback",
+            successMsg: "✓ Thanks for your feedback!" },
+    down: { subtext: "Tell us what we can improve (optional).",
+            sendLabel: "Share Feedback",
+            successMsg: "✓ Thanks for your feedback!" },
+  };
+
+  function chooseFeedback(type) {
+    currentFeedbackType = type;
+    const cfg = FEEDBACK_CONFIG[type];
+
+    // Highlight the chosen thumb
+    document.getElementById("thumb-up").classList.toggle("active-up",   type === "up");
+    document.getElementById("thumb-down").classList.toggle("active-down", type === "down");
+
+    feedbackSubtext.textContent  = cfg.subtext;
+    feedbackNote.placeholder     = cfg.subtext;
+    feedbackSend.textContent     = cfg.sendLabel;
+    feedbackSend.disabled        = false;
+
+    feedbackStrip.classList.add("open");
+    feedbackNote.focus();
+  }
+
+  function closeFeedback() {
+    feedbackStrip.classList.remove("open");
+    feedbackNote.value = "";
+    currentFeedbackType = null;
+    document.getElementById("thumb-up").classList.remove("active-up");
+    document.getElementById("thumb-down").classList.remove("active-down");
+  }
+
+  function submitFeedback() {
+    if (!currentFeedbackType) return;
+    const cfg  = FEEDBACK_CONFIG[currentFeedbackType];
+    const note = feedbackNote.value.trim();
+
+    feedbackSend.disabled    = true;
+    feedbackSend.textContent = "Sending…";
+
+    fetch("/feedback", {
+      method : "POST",
+      headers: { "Content-Type": "application/json" },
+      body   : JSON.stringify({ type: currentFeedbackType, note, session_id: sessionId }),
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        feedbackSend.textContent = cfg.successMsg;
+        setTimeout(closeFeedback, 2000);
+      } else {
+        feedbackSend.disabled    = false;
+        feedbackSend.textContent = cfg.sendLabel;
+        alert("Something went wrong: " + (data.error || "unknown error"));
+      }
+    })
+    .catch(() => {
+      feedbackSend.disabled    = false;
+      feedbackSend.textContent = cfg.sendLabel;
+      alert("Could not reach the server.");
+    });
+  }
+</script>
+</body>
+</html>
