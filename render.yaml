@@ -13,5 +13,9 @@ services:
         value: "1"
       - key: MKL_NUM_THREADS
         value: "1"
+      - key: TURSO_DATABASE_URL
+        sync: false          # set manually in Render dashboard
+      - key: TURSO_AUTH_TOKEN
+        sync: false          # set manually in Render dashboard
     # Free plan: 512 MB RAM — sufficient for multilingual-e5-small + FAISS
     plan: free
