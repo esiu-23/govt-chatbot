@@ -16,17 +16,13 @@ import time
 import requests
 import faiss
 import numpy as np
-import torch
-import torch.nn.functional as F
 from datetime import datetime
 from pathlib import Path
 from bs4 import BeautifulSoup
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 # Prevent tokenizers from spawning child processes (causes segfault on macOS)
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-# Prevent PyTorch thread-pool semaphore leaks on macOS (Intel)
-torch.set_num_threads(1)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -71,13 +67,11 @@ EXTRA_SOURCES = [
 # Max pages to collect per extra source (keeps runtime reasonable)
 EXTRA_SOURCE_MAX_PAGES = 60
 EMBEDDINGS_CKPT      = Path("vectors/embeddings_checkpoint.npz")
-MODEL_NAME           = "intfloat/multilingual-e5-small"
-BGE_PASSAGE_PREFIX   = "passage: "
+MODEL_NAME           = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 MAX_CHARS            = 2000   # target chunk size (chars; ~500 tokens)
 OVERLAP_CHARS        = 300    # overlap between consecutive chunks
 REQUEST_DELAY        = 0.5    # seconds between HTTP requests (be polite)
-EMBED_BATCH_SIZE     = 16
-CHECKPOINT_EVERY     = 5      # save checkpoint every N batches (~80 chunks)
+EMBED_BATCH_SIZE     = 8      # smaller batches → lower peak RAM during embedding
 HEADERS        = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -407,65 +401,12 @@ def main():
 
     # 4. Embed + build FAISS index
     print(f"Step 4/4 — Embedding with {MODEL_NAME}...")
-    model = SentenceTransformer(MODEL_NAME, device="cpu")
+    model = TextEmbedding(MODEL_NAME)
 
-    # Extract tokenizer + base transformer so we never touch model.encode()
-    # (which creates a DataLoader each call and leaks semaphores on macOS)
-    _tokenizer  = model.tokenizer
-    _base_model = model[0].auto_model
-    _base_model.eval()
-
-    def _embed_batch(batch_texts: list[str]) -> np.ndarray:
-        """Tokenize and embed directly — no DataLoader, no semaphores."""
-        encoded = _tokenizer(
-            batch_texts,
-            padding=True,
-            truncation=True,
-            max_length=512,
-            return_tensors="pt",
-        )
-        with torch.no_grad():
-            out = _base_model(**encoded)
-        mask       = encoded["attention_mask"].unsqueeze(-1).float()
-        pooled     = (out.last_hidden_state * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-        normalized = F.normalize(pooled, p=2, dim=1)
-        return normalized.cpu().numpy()
-
-    texts       = [BGE_PASSAGE_PREFIX + c["text"] for c in all_chunks]
-    start_idx   = 0
-    done_embeds = []
-
-    # Resume from checkpoint if one exists and chunk count matches
-    if EMBEDDINGS_CKPT.exists():
-        ckpt = np.load(EMBEDDINGS_CKPT)
-        if int(ckpt["total_chunks"]) == len(texts):
-            done_embeds = list(ckpt["embeddings"])
-            start_idx   = len(done_embeds)
-            print(f"  Resuming from chunk {start_idx}/{len(texts)} (checkpoint found)\n")
-        else:
-            print("  Stale checkpoint (chunk count changed) — starting fresh\n")
-            EMBEDDINGS_CKPT.unlink()
-
-    total_batches = (len(texts) - start_idx + EMBED_BATCH_SIZE - 1) // EMBED_BATCH_SIZE
-    for batch_num, batch_start in enumerate(
-        range(start_idx, len(texts), EMBED_BATCH_SIZE), start=1
-    ):
-        batch_end    = min(batch_start + EMBED_BATCH_SIZE, len(texts))
-        batch_embeds = _embed_batch(texts[batch_start:batch_end])
-        done_embeds.extend(batch_embeds)
-
-        print(f"  Batch {batch_num}/{total_batches} — chunks {batch_end}/{len(texts)}", end="\r")
-
-        if batch_num % CHECKPOINT_EVERY == 0:
-            np.savez(
-                EMBEDDINGS_CKPT,
-                embeddings   = np.array(done_embeds, dtype=np.float32),
-                total_chunks = np.array(len(texts)),
-            )
-            print(f"\n  Checkpoint saved at chunk {batch_end}")
-
-    print()  # newline after progress line
-    embeddings = np.array(done_embeds, dtype=np.float32)
+    texts = [c["text"] for c in all_chunks]
+    print(f"  Embedding {len(texts)} chunks...")
+    embeddings = np.array(list(model.embed(texts, batch_size=EMBED_BATCH_SIZE)), dtype=np.float32)
+    print()
 
     # Clear checkpoint on clean finish
     if EMBEDDINGS_CKPT.exists():
@@ -474,7 +415,8 @@ def main():
 
     dim   = embeddings.shape[1]
     index = faiss.IndexFlatIP(dim)   # IndexFlatIP on normalised vectors = cosine similarity
-    index.add(embeddings.astype(np.float32))
+    index.add(embeddings)
+    del embeddings  # free the large array before writing metadata
 
     # Persist
     faiss.write_index(index, str(VECTORS_DIR / "index.faiss"))

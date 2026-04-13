@@ -16,6 +16,7 @@ import os
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
+import gc
 import json
 import sqlite3
 from contextlib import contextmanager
@@ -24,7 +25,7 @@ import faiss
 import numpy as np
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 import anthropic
 from dotenv import load_dotenv
 
@@ -34,15 +35,14 @@ load_dotenv()
 # Config
 # ---------------------------------------------------------------------------
 VECTORS_DIR = Path("vectors")
-MODEL_NAME  = "intfloat/multilingual-e5-small"
+MODEL_NAME  = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 TOP_K       = 5
-BGE_QUERY_PREFIX = "query: "
 
 # ---------------------------------------------------------------------------
 # Load assets at startup (once, not per request)
 # ---------------------------------------------------------------------------
 print("Loading embedding model...")
-embedder = SentenceTransformer(MODEL_NAME)
+embedder = TextEmbedding(MODEL_NAME)
 
 index_path    = VECTORS_DIR / "index.faiss"
 metadata_path = VECTORS_DIR / "metadata.json"
@@ -63,6 +63,7 @@ TOTAL_CHUNKS  = metadata["total_chunks"]
 chunks        = metadata["chunks"]
 
 print(f"Ready — {TOTAL_CHUNKS} chunks indexed from scrape on {SCRAPE_DATE}\n")
+gc.collect()  # free any transient allocations from model + index loading
 
 # ---------------------------------------------------------------------------
 # Session log — SQLite locally, Turso in production
@@ -292,10 +293,7 @@ def chat():
     lang_name = LANG_NAMES.get(lang, "English")
 
     # 1. Embed the question
-    q_embedding = embedder.encode(
-        [BGE_QUERY_PREFIX + question],
-        normalize_embeddings=True,
-    )
+    q_embedding = np.array(list(embedder.embed([question])))
 
     # 2. Cosine similarity search via FAISS
     scores, indices = faiss_index.search(q_embedding.astype(np.float32), TOP_K)
