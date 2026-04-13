@@ -227,7 +227,7 @@ def log_feedback(session_id, feedback_type, note):
 # ---------------------------------------------------------------------------
 # Claude client
 # ---------------------------------------------------------------------------
-client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=30.0)
 
 SYSTEM_PROMPT = (
     "You are a concise assistant for City of Chicago government services.\n\n"
@@ -319,10 +319,14 @@ def chat():
     lang_name = LANG_NAMES.get(lang, "English")
 
     # 1. Embed the question
+    print(f"[chat] embedding question: {question[:50]!r}")
     q_embedding = np.array(list(_embedder.embed([question])))
+    print("[chat] embedding done")
 
     # 2. Cosine similarity search via FAISS
+    print("[chat] searching FAISS")
     scores, indices = _faiss_index.search(q_embedding.astype(np.float32), TOP_K)
+    print("[chat] FAISS done")
 
     # 3. Collect retrieved chunks + deduplicated sources
     context_parts = []
@@ -366,6 +370,7 @@ def chat():
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": user_content})
 
+    print("[chat] calling Anthropic API")
     try:
         message = client.messages.create(
             model      = "claude-haiku-4-5-20251001",
@@ -373,6 +378,7 @@ def chat():
             system     = SYSTEM_PROMPT,
             messages   = messages,
         )
+        print("[chat] Anthropic API done")
     except anthropic.BadRequestError as exc:
         # Context window exceeded (prompt too long)
         app.logger.warning("Context window exceeded: %s", exc)
@@ -446,6 +452,7 @@ def chat():
         filtered_sources = sources
         fallback_used = True
 
+    print("[chat] logging to DB")
     log_source_debug(
         session_id,
         question,
@@ -462,6 +469,7 @@ def chat():
          "used_urls": sorted(used_urls),
          "fallback_used": fallback_used},
     )
+    print("[chat] done")
     return jsonify({
         "type"       : "answer",
         "answer"     : answer_text,
