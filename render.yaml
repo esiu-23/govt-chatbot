@@ -3,7 +3,7 @@ services:
     name: govt-chatbot
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn api:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --preload
+    startCommand: gunicorn api:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --preload
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false          # set manually in Render dashboard
@@ -17,6 +17,8 @@ services:
         sync: false          # set manually in Render dashboard
       - key: TURSO_AUTH_TOKEN
         sync: false          # set manually in Render dashboard
+      - key: FASTEMBED_CACHE_DIR
+        value: /var/data/fastembed_cache
     plan: starter
     disk:
       name: model-cache

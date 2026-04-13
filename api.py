@@ -52,7 +52,13 @@ if not index_path.exists() or not metadata_path.exists():
 print("Loading embedding model...")
 # threads=1 caps ONNX intra/inter-op parallelism to cut peak RSS on
 # memory-constrained hosts (Render free tier: 512 MB).
-_embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir="/var/data/fastembed_cache")
+_local_cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".fastembed_cache")
+_cache_dir   = os.environ.get("FASTEMBED_CACHE_DIR", _local_cache)
+try:
+    _embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir=_cache_dir)
+except PermissionError:
+    print(f"Warning: could not write to {_cache_dir}, falling back to {_local_cache}")
+    _embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir=_local_cache)
 
 print("Loading FAISS index...")
 _faiss_index = faiss.read_index(str(index_path))
