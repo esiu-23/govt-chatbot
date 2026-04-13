@@ -94,12 +94,14 @@ _TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 _USE_TURSO   = bool(_TURSO_URL and _TURSO_TOKEN)
 
 if _USE_TURSO:
+    import glob as _glob
     import libsql_experimental as libsql
     # Render's filesystem is ephemeral: the replica db file is wiped on each
-    # deploy but libsql's metadata file can survive, leaving the replica in a
+    # deploy but libsql's metadata files can survive, leaving the replica in a
     # corrupt state ("metadata file exists but db file does not").
-    # Delete both before the first connect so libsql starts clean.
-    for _stale in ("replica.db", "replica.db-wal", "replica.db-shm"):
+    # Glob catches replica.db, replica.db-wal, replica.db-shm, and any other
+    # internal files libsql creates with that prefix.
+    for _stale in _glob.glob("replica.db*"):
         Path(_stale).unlink(missing_ok=True)
 
 
