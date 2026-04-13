@@ -95,6 +95,12 @@ _USE_TURSO   = bool(_TURSO_URL and _TURSO_TOKEN)
 
 if _USE_TURSO:
     import libsql_experimental as libsql
+    # Render's filesystem is ephemeral: the replica db file is wiped on each
+    # deploy but libsql's metadata file can survive, leaving the replica in a
+    # corrupt state ("metadata file exists but db file does not").
+    # Delete both before the first connect so libsql starts clean.
+    for _stale in ("replica.db", "replica.db-wal", "replica.db-shm"):
+        Path(_stale).unlink(missing_ok=True)
 
 
 @contextmanager
@@ -219,7 +225,13 @@ def log_feedback(session_id, feedback_type, note):
 # ---------------------------------------------------------------------------
 # Claude client
 # ---------------------------------------------------------------------------
-client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+_api_key = os.environ.get("ANTHROPIC_API_KEY")
+if not _api_key:
+    raise RuntimeError(
+        "ANTHROPIC_API_KEY is not set. "
+        "Add it in the Render dashboard under Environment variables."
+    )
+client = anthropic.Anthropic(api_key=_api_key)
 
 SYSTEM_PROMPT = (
     "You are a concise assistant for City of Chicago government services.\n\n"
