@@ -7,6 +7,8 @@ services:
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false          # set manually in Render dashboard
+      - key: PYTHONUNBUFFERED
+        value: "1"
       - key: TOKENIZERS_PARALLELISM
         value: "false"
       - key: OMP_NUM_THREADS
