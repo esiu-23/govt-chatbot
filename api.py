@@ -52,7 +52,7 @@ if not index_path.exists() or not metadata_path.exists():
 print("Loading embedding model...")
 # threads=1 caps ONNX intra/inter-op parallelism to cut peak RSS on
 # memory-constrained hosts (Render free tier: 512 MB).
-_embedder = TextEmbedding(MODEL_NAME, threads=1)
+_embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir="/var/data/fastembed_cache")
 
 print("Loading FAISS index...")
 _faiss_index = faiss.read_index(str(index_path))

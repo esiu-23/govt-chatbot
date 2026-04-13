@@ -17,5 +17,8 @@ services:
         sync: false          # set manually in Render dashboard
       - key: TURSO_AUTH_TOKEN
         sync: false          # set manually in Render dashboard
-    # Free plan: 512 MB RAM — sufficient for multilingual-e5-small + FAISS
-    plan: free
+    plan: starter
+    disk:
+      name: model-cache
+      mountPath: /var/data
+      sizeGB: 1
