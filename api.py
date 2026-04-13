@@ -38,32 +38,50 @@ VECTORS_DIR = Path("vectors")
 MODEL_NAME  = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 TOP_K       = 5
 
-# ---------------------------------------------------------------------------
-# Load assets at startup (once, not per request)
-# ---------------------------------------------------------------------------
-print("Loading embedding model...")
-embedder = TextEmbedding(MODEL_NAME)
-
 index_path    = VECTORS_DIR / "index.faiss"
 metadata_path = VECTORS_DIR / "metadata.json"
 
-if not index_path.exists() or not metadata_path.exists():
-    raise FileNotFoundError(
-        "Vector index not found. Run `python scrape_and_index.py` first."
-    )
+# ---------------------------------------------------------------------------
+# Lazy-load assets on first request to let gunicorn bind the port before
+# the embedding model (120 MB ONNX) and FAISS index are pulled into memory.
+# Loading at import time caused OOM before Flask could start on Render's
+# 512 MB free tier.
+# ---------------------------------------------------------------------------
+_embedder:    "TextEmbedding | None" = None
+_faiss_index: "faiss.Index | None"  = None
+SCRAPE_DATE:  str = ""
+TOTAL_CHUNKS: int = 0
+chunks:       list = []
 
-print("Loading FAISS index...")
-faiss_index = faiss.read_index(str(index_path))
 
-with open(metadata_path, encoding="utf-8") as f:
-    metadata = json.load(f)
+def _ensure_resources() -> None:
+    """Load the embedding model and FAISS index exactly once."""
+    global _embedder, _faiss_index, SCRAPE_DATE, TOTAL_CHUNKS, chunks
+    if _embedder is not None:
+        return
 
-SCRAPE_DATE   = metadata["scrape_date"]
-TOTAL_CHUNKS  = metadata["total_chunks"]
-chunks        = metadata["chunks"]
+    if not index_path.exists() or not metadata_path.exists():
+        raise FileNotFoundError(
+            "Vector index not found. Run `python scrape_and_index.py` first."
+        )
 
-print(f"Ready — {TOTAL_CHUNKS} chunks indexed from scrape on {SCRAPE_DATE}\n")
-gc.collect()  # free any transient allocations from model + index loading
+    print("Loading embedding model...")
+    # threads=1 caps ONNX intra/inter-op parallelism to cut peak RSS on
+    # memory-constrained hosts (Render free tier: 512 MB).
+    _embedder = TextEmbedding(MODEL_NAME, threads=1)
+
+    print("Loading FAISS index...")
+    _faiss_index = faiss.read_index(str(index_path))
+
+    with open(metadata_path, encoding="utf-8") as f:
+        meta = json.load(f)
+
+    SCRAPE_DATE  = meta["scrape_date"]
+    TOTAL_CHUNKS = meta["total_chunks"]
+    chunks       = meta["chunks"]
+
+    gc.collect()
+    print(f"Ready — {TOTAL_CHUNKS} chunks indexed from scrape on {SCRAPE_DATE}\n")
 
 # ---------------------------------------------------------------------------
 # Session log — SQLite locally, Turso in production
@@ -266,6 +284,7 @@ def index():
 
 @app.route("/health")
 def health():
+    _ensure_resources()
     return jsonify({
         "status"       : "ok",
         "scrape_date"  : SCRAPE_DATE,
@@ -276,6 +295,7 @@ def health():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    _ensure_resources()
     data       = request.get_json(silent=True) or {}
     question   = data.get("question", "").strip()
     lang       = data.get("lang", "en").strip() or "en"
@@ -293,10 +313,10 @@ def chat():
     lang_name = LANG_NAMES.get(lang, "English")
 
     # 1. Embed the question
-    q_embedding = np.array(list(embedder.embed([question])))
+    q_embedding = np.array(list(_embedder.embed([question])))
 
     # 2. Cosine similarity search via FAISS
-    scores, indices = faiss_index.search(q_embedding.astype(np.float32), TOP_K)
+    scores, indices = _faiss_index.search(q_embedding.astype(np.float32), TOP_K)
 
     # 3. Collect retrieved chunks + deduplicated sources
     context_parts = []

@@ -254,7 +254,7 @@ DigitalOcean).
 
 | Decision | Choice | Reason |
 |---|---|---|
-| Embedding model | `BAAI/bge-base-en-v1.5` | Top MTEB retrieval score among free local models; 440 MB; no extra API key |
+| Embedding model | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` via fastembed | Multilingual support; 120 MB ONNX; loaded lazily on first request to stay under Render free-tier 512 MB limit |
 | BGE query prefix | `"Represent this sentence for searching relevant passages: "` | Required by BGE for asymmetric retrieval (query ≠ passage) |
 | Vector similarity | Inner product on L2-normalised vectors | Mathematically equivalent to cosine similarity; runs in FAISS `IndexFlatIP` |
 | Vector store | FAISS `IndexFlatIP` | Exact search over ~300–500 chunks is instant; no server, no Docker |
