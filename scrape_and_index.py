@@ -114,6 +114,25 @@ def get_dept_links(url: str) -> list[str]:
     return links
 
 
+# Markers that signal the start of boilerplate present on every chicago.gov page
+# (contact modal + "I Want To" sidebar). Everything from the first match onward
+# is site-wide chrome with no page-specific content.
+_CHICAGO_BOILERPLATE_MARKERS = [
+    "\nContact\n×\n* Your email address:",
+    "\n* Your email address:",
+    "\nI Want To\nApply For\n",
+]
+
+
+def strip_chicago_boilerplate(text: str) -> str:
+    """Remove the contact-form / 'I Want To' sidebar that appears on every chicago.gov page."""
+    for marker in _CHICAGO_BOILERPLATE_MARKERS:
+        idx = text.find(marker)
+        if idx != -1:
+            return text[:idx].strip()
+    return text
+
+
 def scrape_page(url: str) -> dict | None:
     """
     Fetch a single page and return a dict with title, url, and cleaned text.
@@ -124,7 +143,7 @@ def scrape_page(url: str) -> dict | None:
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Strip boilerplate
+        # Strip boilerplate HTML tags
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
             tag.decompose()
 
@@ -134,6 +153,10 @@ def scrape_page(url: str) -> dict | None:
         # Prefer the <main> element; fall back to <body>
         body = soup.find("main") or soup.find("div", {"id": "page-content"}) or soup.body
         text = body.get_text(separator="\n", strip=True) if body else ""
+
+        # Remove site-wide boilerplate text that adds no page-specific signal
+        if "chicago.gov" in url:
+            text = strip_chicago_boilerplate(text)
 
         return {"title": title, "url": url, "text": text}
 
