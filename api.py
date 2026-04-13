@@ -225,13 +225,7 @@ def log_feedback(session_id, feedback_type, note):
 # ---------------------------------------------------------------------------
 # Claude client
 # ---------------------------------------------------------------------------
-_api_key = os.environ.get("ANTHROPIC_API_KEY")
-if not _api_key:
-    raise RuntimeError(
-        "ANTHROPIC_API_KEY is not set. "
-        "Add it in the Render dashboard under Environment variables."
-    )
-client = anthropic.Anthropic(api_key=_api_key)
+client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 SYSTEM_PROMPT = (
     "You are a concise assistant for City of Chicago government services.\n\n"
