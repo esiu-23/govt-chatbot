@@ -42,46 +42,31 @@ index_path    = VECTORS_DIR / "index.faiss"
 metadata_path = VECTORS_DIR / "metadata.json"
 
 # ---------------------------------------------------------------------------
-# Lazy-load assets on first request to let gunicorn bind the port before
-# the embedding model (120 MB ONNX) and FAISS index are pulled into memory.
-# Loading at import time caused OOM before Flask could start on Render's
-# 512 MB free tier.
+# Load assets at startup so they're ready before the first request.
 # ---------------------------------------------------------------------------
-_embedder:    "TextEmbedding | None" = None
-_faiss_index: "faiss.Index | None"  = None
-SCRAPE_DATE:  str = ""
-TOTAL_CHUNKS: int = 0
-chunks:       list = []
+if not index_path.exists() or not metadata_path.exists():
+    raise FileNotFoundError(
+        "Vector index not found. Run `python scrape_and_index.py` first."
+    )
 
+print("Loading embedding model...")
+# threads=1 caps ONNX intra/inter-op parallelism to cut peak RSS on
+# memory-constrained hosts (Render free tier: 512 MB).
+_embedder = TextEmbedding(MODEL_NAME, threads=1)
 
-def _ensure_resources() -> None:
-    """Load the embedding model and FAISS index exactly once."""
-    global _embedder, _faiss_index, SCRAPE_DATE, TOTAL_CHUNKS, chunks
-    if _embedder is not None:
-        return
+print("Loading FAISS index...")
+_faiss_index = faiss.read_index(str(index_path))
 
-    if not index_path.exists() or not metadata_path.exists():
-        raise FileNotFoundError(
-            "Vector index not found. Run `python scrape_and_index.py` first."
-        )
+with open(metadata_path, encoding="utf-8") as f:
+    _meta = json.load(f)
 
-    print("Loading embedding model...")
-    # threads=1 caps ONNX intra/inter-op parallelism to cut peak RSS on
-    # memory-constrained hosts (Render free tier: 512 MB).
-    _embedder = TextEmbedding(MODEL_NAME, threads=1)
+SCRAPE_DATE  = _meta["scrape_date"]
+TOTAL_CHUNKS = _meta["total_chunks"]
+chunks       = _meta["chunks"]
+del _meta
 
-    print("Loading FAISS index...")
-    _faiss_index = faiss.read_index(str(index_path))
-
-    with open(metadata_path, encoding="utf-8") as f:
-        meta = json.load(f)
-
-    SCRAPE_DATE  = meta["scrape_date"]
-    TOTAL_CHUNKS = meta["total_chunks"]
-    chunks       = meta["chunks"]
-
-    gc.collect()
-    print(f"Ready — {TOTAL_CHUNKS} chunks indexed from scrape on {SCRAPE_DATE}\n")
+gc.collect()
+print(f"Ready — {TOTAL_CHUNKS} chunks indexed from scrape on {SCRAPE_DATE}\n")
 
 # ---------------------------------------------------------------------------
 # Session log — SQLite locally, Turso in production
@@ -292,7 +277,6 @@ def index():
 
 @app.route("/health")
 def health():
-    _ensure_resources()
     return jsonify({
         "status"       : "ok",
         "scrape_date"  : SCRAPE_DATE,
@@ -303,7 +287,6 @@ def health():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    _ensure_resources()
     data       = request.get_json(silent=True) or {}
     question   = data.get("question", "").strip()
     lang       = data.get("lang", "en").strip() or "en"
