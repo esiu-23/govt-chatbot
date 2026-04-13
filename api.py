@@ -42,37 +42,46 @@ index_path    = VECTORS_DIR / "index.faiss"
 metadata_path = VECTORS_DIR / "metadata.json"
 
 # ---------------------------------------------------------------------------
-# Load assets at startup so they're ready before the first request.
+# Assets — loaded in each worker via gunicorn's post_fork hook (see
+# gunicorn.conf.py) so ONNX threads are never inherited across fork().
+# Call load_resources() directly when running outside gunicorn (e.g. locally).
 # ---------------------------------------------------------------------------
-if not index_path.exists() or not metadata_path.exists():
-    raise FileNotFoundError(
-        "Vector index not found. Run `python scrape_and_index.py` first."
-    )
+_embedder:    "TextEmbedding | None" = None
+_faiss_index: "faiss.Index | None"  = None
+SCRAPE_DATE:  str = ""
+TOTAL_CHUNKS: int = 0
+chunks:       list = []
 
-print("Loading embedding model...")
-# threads=1 caps ONNX intra/inter-op parallelism to cut peak RSS on
-# memory-constrained hosts (Render free tier: 512 MB).
-_local_cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".fastembed_cache")
-_cache_dir   = os.environ.get("FASTEMBED_CACHE_DIR", _local_cache)
-try:
-    _embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir=_cache_dir)
-except PermissionError:
-    print(f"Warning: could not write to {_cache_dir}, falling back to {_local_cache}")
-    _embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir=_local_cache)
 
-print("Loading FAISS index...")
-_faiss_index = faiss.read_index(str(index_path))
+def load_resources() -> None:
+    global _embedder, _faiss_index, SCRAPE_DATE, TOTAL_CHUNKS, chunks
 
-with open(metadata_path, encoding="utf-8") as f:
-    _meta = json.load(f)
+    if not index_path.exists() or not metadata_path.exists():
+        raise FileNotFoundError(
+            "Vector index not found. Run `python scrape_and_index.py` first."
+        )
 
-SCRAPE_DATE  = _meta["scrape_date"]
-TOTAL_CHUNKS = _meta["total_chunks"]
-chunks       = _meta["chunks"]
-del _meta
+    print("Loading embedding model...")
+    _local_cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".fastembed_cache")
+    _cache_dir   = os.environ.get("FASTEMBED_CACHE_DIR", _local_cache)
+    try:
+        _embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir=_cache_dir)
+    except PermissionError:
+        print(f"Warning: could not write to {_cache_dir}, falling back to {_local_cache}")
+        _embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir=_local_cache)
 
-gc.collect()
-print(f"Ready — {TOTAL_CHUNKS} chunks indexed from scrape on {SCRAPE_DATE}\n")
+    print("Loading FAISS index...")
+    _faiss_index = faiss.read_index(str(index_path))
+
+    with open(metadata_path, encoding="utf-8") as f:
+        _meta = json.load(f)
+
+    SCRAPE_DATE  = _meta["scrape_date"]
+    TOTAL_CHUNKS = _meta["total_chunks"]
+    chunks       = _meta["chunks"]
+
+    gc.collect()
+    print(f"Ready — {TOTAL_CHUNKS} chunks indexed from scrape on {SCRAPE_DATE}\n")
 
 # ---------------------------------------------------------------------------
 # Session log — SQLite locally, Turso in production
@@ -478,5 +487,6 @@ def feedback():
 
 
 if __name__ == "__main__":
+    load_resources()
     port = int(os.environ.get("PORT", 5001))
     app.run(debug=False, host="0.0.0.0", port=port, use_reloader=False)
