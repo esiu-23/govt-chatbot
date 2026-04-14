@@ -16,6 +16,7 @@ import os
 import gc
 import json
 import time
+import socket
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import numpy as np
@@ -38,6 +39,25 @@ MODEL_NAME    = "voyage-multilingual-2"
 TOP_K         = 5
 SCORE_THRESHOLD = 0.35   # minimum cosine similarity; drops irrelevant chunks
 DATABASE_URL  = os.environ.get("DATABASE_URL")
+
+
+def _ipv4_dsn(dsn: str) -> str:
+    """Inject hostaddr= (IPv4) into the DSN so psycopg2 never tries IPv6."""
+    import urllib.parse as _up
+    # Parse as a URL to extract the hostname
+    parsed = _up.urlparse(dsn)
+    hostname = parsed.hostname
+    if not hostname:
+        return dsn
+    try:
+        # getaddrinfo with AF_INET forces IPv4 resolution
+        infos = socket.getaddrinfo(hostname, None, socket.AF_INET)
+        ipv4 = infos[0][4][0]
+    except Exception:
+        return dsn  # can't resolve; let psycopg2 try normally
+    # Append hostaddr to the DSN query string so psycopg2 uses it
+    separator = "&" if "?" in dsn else "?"
+    return f"{dsn}{separator}hostaddr={ipv4}"
 
 # ---------------------------------------------------------------------------
 # Globals set once in load_resources()
@@ -76,7 +96,7 @@ def load_resources() -> None:
 
     print("Connecting to Supabase...", flush=True)
     _pool = psycopg2.pool.ThreadedConnectionPool(
-        minconn=2, maxconn=10, dsn=DATABASE_URL, connect_timeout=10
+        minconn=2, maxconn=10, dsn=_ipv4_dsn(DATABASE_URL), connect_timeout=10
     )
 
     with _db() as conn:

@@ -13,6 +13,7 @@ import os
 import multiprocessing
 import json
 import time
+import socket
 import requests
 import numpy as np
 import voyageai
@@ -25,6 +26,23 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _ipv4_dsn(dsn: str) -> str:
+    """Inject hostaddr= (IPv4) into the DSN so psycopg2 never tries IPv6."""
+    import urllib.parse as _up
+    parsed = _up.urlparse(dsn)
+    hostname = parsed.hostname
+    if not hostname:
+        return dsn
+    try:
+        infos = socket.getaddrinfo(hostname, None, socket.AF_INET)
+        ipv4 = infos[0][4][0]
+    except Exception:
+        return dsn
+    separator = "&" if "?" in dsn else "?"
+    return f"{dsn}{separator}hostaddr={ipv4}"
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -427,7 +445,7 @@ def main():
 
     # 5. Write to Supabase
     print("Step 5/5 — Writing to Supabase...")
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    conn = psycopg2.connect(_ipv4_dsn(os.environ["DATABASE_URL"]))
     register_vector(conn)
     cur = conn.cursor()
 

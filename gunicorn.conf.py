@@ -3,9 +3,6 @@ timeout = 300
 
 
 def post_fork(server, worker):
-    """Load the ONNX embedding model fresh inside each worker after fork.
-    ONNX Runtime uses internal threads that don't survive fork(), so the model
-    must be initialized here rather than in the master (--preload) process.
-    """
+    """Connect to Supabase and initialise the Voyage AI client inside each worker."""
     import api
     api.load_resources()

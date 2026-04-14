@@ -7,22 +7,10 @@ services:
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false          # set manually in Render dashboard
+      - key: VOYAGE_API_KEY
+        sync: false          # set manually in Render dashboard
+      - key: DATABASE_URL
+        sync: false          # Supabase connection string — set manually in Render dashboard
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: TOKENIZERS_PARALLELISM
-        value: "false"
-      - key: OMP_NUM_THREADS
-        value: "1"
-      - key: MKL_NUM_THREADS
-        value: "1"
-      - key: TURSO_DATABASE_URL
-        sync: false          # set manually in Render dashboard
-      - key: TURSO_AUTH_TOKEN
-        sync: false          # set manually in Render dashboard
-      - key: FASTEMBED_CACHE_DIR
-        value: /var/data/fastembed_cache
-    plan: starter
-    disk:
-      name: model-cache
-      mountPath: /var/data
-      sizeGB: 1
+    plan: free
