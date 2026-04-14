@@ -13,19 +13,19 @@ Start:  python api.py
 """
 
 import os
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
 import gc
 import json
-import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
-import faiss
 import numpy as np
+import psycopg2
+import psycopg2.extras
+import psycopg2.pool
+import voyageai
+from pgvector.psycopg2 import register_vector
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
-from fastembed import TextEmbedding
 import anthropic
 from dotenv import load_dotenv
 
@@ -34,169 +34,105 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-VECTORS_DIR = Path("vectors")
-MODEL_NAME  = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-TOP_K       = 5
-
-index_path    = VECTORS_DIR / "index.faiss"
-metadata_path = VECTORS_DIR / "metadata.json"
+MODEL_NAME    = "voyage-multilingual-2"
+TOP_K         = 5
+SCORE_THRESHOLD = 0.35   # minimum cosine similarity; drops irrelevant chunks
+DATABASE_URL  = os.environ.get("DATABASE_URL")
 
 # ---------------------------------------------------------------------------
-# Assets — loaded in each worker via gunicorn's post_fork hook (see
-# gunicorn.conf.py) so ONNX threads are never inherited across fork().
-# Call load_resources() directly when running outside gunicorn (e.g. locally).
+# Globals set once in load_resources()
 # ---------------------------------------------------------------------------
-_embedder:    "TextEmbedding | None" = None
-_faiss_index: "faiss.Index | None"  = None
+_voyage:      "voyageai.Client | None" = None
+_pool:        "psycopg2.pool.ThreadedConnectionPool | None" = None
 SCRAPE_DATE:  str = ""
 TOTAL_CHUNKS: int = 0
-chunks:       list = []
 
-
-def load_resources() -> None:
-    global _embedder, _faiss_index, SCRAPE_DATE, TOTAL_CHUNKS, chunks
-
-    if not index_path.exists() or not metadata_path.exists():
-        raise FileNotFoundError(
-            "Vector index not found. Run `python scrape_and_index.py` first."
-        )
-
-    print("Loading embedding model...")
-    _local_cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".fastembed_cache")
-    _cache_dir   = os.environ.get("FASTEMBED_CACHE_DIR", _local_cache)
-    try:
-        _embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir=_cache_dir)
-    except PermissionError:
-        print(f"Warning: could not write to {_cache_dir}, falling back to {_local_cache}")
-        _embedder = TextEmbedding(MODEL_NAME, threads=1, cache_dir=_local_cache)
-
-    print("Loading FAISS index...")
-    _faiss_index = faiss.read_index(str(index_path))
-
-    with open(metadata_path, encoding="utf-8") as f:
-        _meta = json.load(f)
-
-    SCRAPE_DATE  = _meta["scrape_date"]
-    TOTAL_CHUNKS = _meta["total_chunks"]
-    chunks       = _meta["chunks"]
-
-    gc.collect()
-    print(f"Ready — {TOTAL_CHUNKS} chunks indexed from scrape on {SCRAPE_DATE}\n")
 
 # ---------------------------------------------------------------------------
-# Session log — SQLite locally, Turso in production
-# Set TURSO_DATABASE_URL + TURSO_AUTH_TOKEN env vars to enable Turso.
+# Database — pooled connections, auto-commit/rollback/return
 # ---------------------------------------------------------------------------
-DB_PATH = Path(os.environ.get("DB_PATH", "conversations.db"))
-
-_TURSO_URL   = os.environ.get("TURSO_DATABASE_URL")
-_TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
-_USE_TURSO   = bool(_TURSO_URL and _TURSO_TOKEN)
-
-if _USE_TURSO:
-    import glob as _glob
-    import libsql_experimental as libsql
-    # Render's filesystem is ephemeral: the replica db file is wiped on each
-    # deploy but libsql's metadata files can survive, leaving the replica in a
-    # corrupt state ("metadata file exists but db file does not").
-    # Glob catches replica.db, replica.db-wal, replica.db-shm, and any other
-    # internal files libsql creates with that prefix.
-    for _stale in _glob.glob("replica.db*"):
-        Path(_stale).unlink(missing_ok=True)
-
-
 @contextmanager
 def _db():
-    """Context manager that yields an open DB connection and handles commit/sync/close."""
-    if _USE_TURSO:
-        con = libsql.connect("replica.db", sync_url=_TURSO_URL, auth_token=_TURSO_TOKEN)
-        con.sync()
-        try:
-            yield con
-            con.commit()
-            con.sync()
-        finally:
-            con.close()
-    else:
-        con = sqlite3.connect(DB_PATH)
-        try:
-            yield con
-            con.commit()
-        finally:
-            con.close()
+    conn = _pool.getconn()
+    register_vector(conn)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _pool.putconn(conn)
 
 
-def _init_db():
-    with _db() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id    TEXT PRIMARY KEY,
-                started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_updated  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                lang          TEXT,
-                conversation  TEXT NOT NULL DEFAULT '[]',
-                feedback      TEXT,
-                feedback_note TEXT
-            )
-        """)
+# ---------------------------------------------------------------------------
+# Startup — called once per worker before serving requests
+# ---------------------------------------------------------------------------
+def load_resources() -> None:
+    global _voyage, _pool, SCRAPE_DATE, TOTAL_CHUNKS
+
+    print("Initialising Voyage AI client...", flush=True)
+    _voyage = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"], timeout=30)
+
+    print("Connecting to Supabase...", flush=True)
+    _pool = psycopg2.pool.ThreadedConnectionPool(
+        minconn=2, maxconn=10, dsn=DATABASE_URL, connect_timeout=10
+    )
+
+    with _db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT scrape_date, total_chunks FROM scrape_info ORDER BY id DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError("No scrape data found. Run `python scrape_and_index.py` first.")
+        SCRAPE_DATE, TOTAL_CHUNKS = row
+
+    gc.collect()
+    print(f"Ready — {TOTAL_CHUNKS} chunks in Supabase, scraped {SCRAPE_DATE}\n")
 
 
-_init_db()
-
-
+# ---------------------------------------------------------------------------
+# Conversation logging
+# ---------------------------------------------------------------------------
 def upsert_turn(session_id, lang, user_turn, assistant_turn):
     """Append a user + assistant turn pair to this session's conversation JSON."""
     if not session_id:
         return
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
-        with _db() as con:
-            con.execute(
-                "INSERT OR IGNORE INTO sessions (session_id, lang, conversation) VALUES (?, ?, '[]')",
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO sessions (session_id, lang, conversation) VALUES (%s, %s, '[]'::jsonb) "
+                "ON CONFLICT (session_id) DO NOTHING",
                 (session_id, lang),
             )
-            row = con.execute(
-                "SELECT conversation FROM sessions WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-            turns = json.loads(row[0]) if row else []
+            cur.execute(
+                "SELECT conversation FROM sessions WHERE session_id = %s", (session_id,)
+            )
+            row = cur.fetchone()
+            turns = row[0] if row else []
             turns.append({**user_turn,      "timestamp": ts})
             turns.append({**assistant_turn, "timestamp": ts})
-            con.execute(
-                "UPDATE sessions SET conversation = ?, last_updated = CURRENT_TIMESTAMP, lang = ? "
-                "WHERE session_id = ?",
+            cur.execute(
+                "UPDATE sessions SET conversation = %s::jsonb, last_updated = NOW(), lang = %s "
+                "WHERE session_id = %s",
                 (json.dumps(turns, ensure_ascii=False), lang, session_id),
             )
     except Exception as exc:
         app.logger.error("DB upsert_turn failed: %s", exc)
 
 
-def _init_debug_log():
-    with _db() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS source_debug_log (
-                id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                logged_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-                session_id     TEXT,
-                question       TEXT,
-                retrieved_urls TEXT,
-                used_urls      TEXT,
-                filtered_urls  TEXT,
-                fallback_used  INTEGER
-            )
-        """)
-
-
-_init_debug_log()
-
-
 def log_source_debug(session_id, question, retrieved_urls, used_urls, filtered_urls, fallback_used):
     try:
-        with _db() as con:
-            con.execute(
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
                 "INSERT INTO source_debug_log "
                 "(session_id, question, retrieved_urls, used_urls, filtered_urls, fallback_used) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s)",
                 (
                     session_id,
                     question,
@@ -211,13 +147,13 @@ def log_source_debug(session_id, question, retrieved_urls, used_urls, filtered_u
 
 
 def log_feedback(session_id, feedback_type, note):
-    """Write the session-level rating and optional note."""
     if not session_id:
         return
     try:
-        with _db() as con:
-            con.execute(
-                "UPDATE sessions SET feedback = ?, feedback_note = ? WHERE session_id = ?",
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE sessions SET feedback = %s, feedback_note = %s WHERE session_id = %s",
                 (feedback_type, note or None, session_id),
             )
     except Exception as exc:
@@ -268,8 +204,8 @@ SYSTEM_PROMPT = (
 
     "SOURCES LINE: After your answer, on a new line, write exactly:\n"
     "  SOURCES: <comma-separated list of the source URLs you actually used from the context>\n"
-    "Always include the most specific source URL, or the top-level source used:\n" 
-    "chicago.gov for City of Chicago services, chicagoparkdistrict.com for parks information, cps.edu for Chicago Public Schools information.\n" 
+    "Always include the most specific source URL, or the top-level source used:\n"
+    "chicago.gov for City of Chicago services, chicagoparkdistrict.com for parks information, cps.edu for Chicago Public Schools information.\n"
     "If you used no specific URL from the context, write: SOURCES: none\n"
     "Only list URLs that actually appear verbatim in the context provided."
 )
@@ -287,6 +223,7 @@ app = Flask(__name__, static_folder="static")
 
 @app.route("/")
 def index():
+    app.logger.info("index pinged")
     return send_from_directory("static", "index.html")
 
 
@@ -302,14 +239,23 @@ def health():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    app.logger.info("[chat] handler entered")
     data       = request.get_json(silent=True) or {}
     question   = data.get("question", "").strip()
     lang       = data.get("lang", "en").strip() or "en"
     history    = data.get("history", [])
     session_id = data.get("session_id", "")[:64]
 
+    app.logger.info("[chat] parsed request: question=%r lang=%r session_id=%r history_turns=%d",
+                       question[:80], lang, session_id, len(history))
+
     if not question:
+        app.logger.warning("[chat] rejected: empty question")
         return jsonify({"error": "No question provided"}), 400
+
+    t0 = time.monotonic()
+    def elapsed():
+        return f"{time.monotonic() - t0:.2f}s"
 
     LANG_NAMES = {
         "en": "English", "es": "Spanish", "pl": "Polish",
@@ -318,30 +264,45 @@ def chat():
     }
     lang_name = LANG_NAMES.get(lang, "English")
 
-    # 1. Embed the question
-    print(f"[chat] embedding question: {question[:50]!r}")
-    q_embedding = np.array(list(_embedder.embed([question])))
-    print("[chat] embedding done")
+    # 1. Embed the question via Voyage AI
+    app.logger.info("[chat] +%s embedding question: %r", elapsed(), question[:50])
+    result = _voyage.embed([question], model=MODEL_NAME, input_type="query")
+    q_vec = np.array(result.embeddings[0], dtype=np.float32)
+    app.logger.info("[chat] +%s embedding done", elapsed())
 
-    # 2. Cosine similarity search via FAISS
-    print("[chat] searching FAISS")
-    scores, indices = _faiss_index.search(q_embedding.astype(np.float32), TOP_K)
-    print("[chat] FAISS done")
+    # 2. Cosine similarity search via pgvector
+    app.logger.info("[chat] +%s querying Supabase", elapsed())
+    with _db() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """
+            WITH ranked AS (
+                SELECT id, url, title, text,
+                       embedding <=> %s AS distance
+                FROM chunks
+                ORDER BY distance
+                LIMIT %s
+            )
+            SELECT id, url, title, text, 1 - distance AS similarity
+            FROM ranked
+            """,
+            (q_vec, TOP_K),
+        )
+        rows = cur.fetchall()
+    app.logger.info("[chat] +%s query done", elapsed())
 
     # 3. Collect retrieved chunks + deduplicated sources
     context_parts = []
     sources       = []
     seen_urls     = set()
 
-    SCORE_THRESHOLD = 0.35  # cosine similarity floor; drop clearly irrelevant chunks
-    for score, idx in zip(scores[0], indices[0]):
-        if score < SCORE_THRESHOLD:
+    for row in rows:
+        if row["similarity"] < SCORE_THRESHOLD:
             continue
-        chunk = chunks[idx]
-        context_parts.append(f"[Source: {chunk['title']}]\n{chunk['text']}")
-        if chunk["url"] not in seen_urls:
-            seen_urls.add(chunk["url"])
-            sources.append({"title": chunk["title"], "url": chunk["url"]})
+        context_parts.append(f"[Source: {row['title']}]\n{row['text']}")
+        if row["url"] not in seen_urls:
+            seen_urls.add(row["url"])
+            sources.append({"title": row["title"], "url": row["url"]})
 
     context = "\n\n---\n\n".join(context_parts)
 
@@ -370,7 +331,7 @@ def chat():
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": user_content})
 
-    print("[chat] calling Anthropic API")
+    app.logger.info("[chat] +%s calling Anthropic API", elapsed())
     try:
         message = client.messages.create(
             model      = "claude-haiku-4-5-20251001",
@@ -378,10 +339,9 @@ def chat():
             system     = SYSTEM_PROMPT,
             messages   = messages,
         )
-        print("[chat] Anthropic API done")
+        app.logger.info("[chat] +%s Anthropic API done", elapsed())
     except anthropic.BadRequestError as exc:
-        # Context window exceeded (prompt too long)
-        app.logger.warning("Context window exceeded: %s", exc)
+        app.logger.info("Context window exceeded: %s", exc)
         return jsonify({
             "type"   : "limit",
             "answer" : (
@@ -391,9 +351,8 @@ def chat():
             "sources": [],
         })
 
-    # Truncated response — model hit max_tokens mid-generation
     if message.stop_reason == "max_tokens":
-        app.logger.warning("Response truncated (max_tokens) for question: %s", question)
+        app.logger.info("Response truncated (max_tokens) for question: %s", question)
         return jsonify({
             "type"   : "limit",
             "answer" : (
@@ -436,7 +395,6 @@ def chat():
 
     fallback_used = False
     if used_urls:
-        # Try exact URL match first; fall back to domain-level match (e.g. "chicagoparkdistrict.com")
         filtered_sources = [s for s in sources if s["url"] in used_urls]
         if not filtered_sources:
             filtered_sources = [
@@ -446,13 +404,11 @@ def chat():
     else:
         filtered_sources = []
 
-    # Last-resort fallback: if Claude cited nothing (or nothing matched),
-    # surface the raw FAISS-retrieved sources so the user still gets links.
     if not filtered_sources and sources:
         filtered_sources = sources
         fallback_used = True
 
-    print("[chat] logging to DB")
+    app.logger.info("[chat] +%s logging to DB", elapsed())
     log_source_debug(
         session_id,
         question,
@@ -461,7 +417,6 @@ def chat():
         filtered_urls=[s["url"] for s in filtered_sources],
         fallback_used=fallback_used,
     )
-
     upsert_turn(session_id, lang,
         {"role": "user",      "content": question},
         {"role": "assistant", "content": answer_text, "type": "answer",
@@ -469,7 +424,8 @@ def chat():
          "used_urls": sorted(used_urls),
          "fallback_used": fallback_used},
     )
-    print("[chat] done")
+    app.logger.warning("[chat] +%s done", elapsed())
+
     return jsonify({
         "type"       : "answer",
         "answer"     : answer_text,
@@ -477,7 +433,6 @@ def chat():
         "scrape_date": SCRAPE_DATE,
         "disclaimer" : DISCLAIMER_TEMPLATE.format(date=SCRAPE_DATE),
     })
-
 
 
 @app.route("/feedback", methods=["POST"])
@@ -497,4 +452,4 @@ def feedback():
 if __name__ == "__main__":
     load_resources()
     port = int(os.environ.get("PORT", 5001))
-    app.run(debug=False, host="0.0.0.0", port=port, use_reloader=False)
+    app.run(debug=False, host="0.0.0.0", port=port, use_reloader=False, threaded=True)

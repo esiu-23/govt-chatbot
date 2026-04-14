@@ -33,21 +33,22 @@ flowchart LR
     subgraph Offline["Offline — run once"]
         A([chicago.gov/depts]) -->|requests + BS4| B[Raw HTML]
         B -->|clean + chunk| C[Text Chunks]
-        C -->|BGE embedder| D[768-d Vectors]
-        D -->|IndexFlatIP| E[(FAISS index\nfaiss/index.faiss)]
-        C -->|with metadata| F[(metadata.json\nscrape_date, urls, titles)]
+        C -->|Voyage AI API| D[1024-d Vectors]
+        D -->|chunk text + embedding BLOB| E[(vectors.db\nSQLite)]
     end
 
     subgraph Online["Online — per user request"]
         G([User Browser]) -->|POST /chat| H[Flask API]
-        H -->|embed question| I[BGE embedder]
-        I -->|cosine search| E
-        E -->|top-5 chunk IDs| F
-        F -->|retrieved text| H
-        H -->|question + context| J[Claude Haiku API]
-        J -->|answer| H
+        H -->|embed question| I[Voyage AI API]
+        I -->|cosine search| J[FAISS index\nin-memory]
+        J -->|top-5 chunk IDs| E
+        E -->|retrieved text| H
+        H -->|question + context| K[Claude Haiku API]
+        K -->|answer| H
         H -->|answer + sources + disclaimer| G
     end
+
+    E -->|load on startup| J
 ```
 
 **Key principle:** The LLM (Claude) never touches the internet at inference time.
@@ -72,14 +73,11 @@ flowchart TD
     L3["3 · Chunk text\nSliding window\nmax 2 000 chars / chunk\n300-char overlap\nbreak on newlines"]
     L3 --> L4
 
-    L4["4 · Embed chunks\nBAAI/bge-base-en-v1.5\nnormalize_embeddings=True\nbatch_size=32\n→ 768-dim float32 vectors"]
+    L4["4 · Embed chunks\nvoyage-multilingual-2 API\nbatch_size=64\n→ 1024-dim float32 vectors (L2-normalised)"]
     L4 --> L5
 
-    L5["5 · Build FAISS index\nIndexFlatIP\n(inner product = cosine sim\non normalised vectors)"]
-    L5 --> L6
-
-    L6["6 · Persist\nvectors/index.faiss\nvectors/metadata.json\n(includes scrape_date)"]
-    L6 --> E([Done])
+    L5["5 · Write to SQLite\nvectors/vectors.db\nchunks table: text + embedding BLOB\nscrape_info table: date, model, counts"]
+    L5 --> E([Done])
 
     style S fill:#003F87,color:#fff
     style E fill:#003F87,color:#fff
@@ -96,7 +94,7 @@ sequenceDiagram
     actor User
     participant Browser
     participant Flask as Flask API (api.py)
-    participant BGE as BGE Embedder (local)
+    participant Voyage as Voyage AI API
     participant FAISS as FAISS Index (local)
     participant Meta as metadata.json (local)
     participant Claude as Claude Haiku (Anthropic API)
@@ -104,8 +102,8 @@ sequenceDiagram
     User->>Browser: Types question, clicks Send
     Browser->>Flask: POST /chat { "question": "..." }
 
-    Flask->>BGE: encode("Represent this sentence...: " + question)
-    BGE-->>Flask: 768-dim query vector
+    Flask->>Voyage: embed(question, input_type="query")
+    Voyage-->>Flask: 1024-dim query vector
 
     Flask->>FAISS: search(query_vector, k=5)
     FAISS-->>Flask: top-5 indices + cosine scores
@@ -150,9 +148,9 @@ erDiagram
     }
 
     VECTOR {
-        int     faiss_index  PK   "row position in index.faiss"
+        int     rowid        PK   "row position in chunks table (= FAISS index position)"
         string  chunk_id     FK   "matches CHUNK.id"
-        float[] embedding         "768-dim float32 (stored in FAISS)"
+        blob    embedding         "1024-dim float32 bytes stored in vectors.db"
     }
 
     SCRAPE_RUN  ||--o{ PAGE    : "produced"
@@ -161,9 +159,9 @@ erDiagram
 ```
 
 > **Storage layout**
-> - `SCRAPE_RUN`, `PAGE`, and `CHUNK` entities live in `vectors/metadata.json`
-> - `VECTOR` embeddings live in `vectors/index.faiss`
-> - Row order in `index.faiss` matches the order of `chunks[]` in `metadata.json`
+> - All entities live in `vectors/vectors.db` (SQLite)
+> - `SCRAPE_RUN` → `scrape_info` table; `PAGE`/`CHUNK`/`VECTOR` → `chunks` table
+> - `rowid` order in `chunks` matches the FAISS index position (rebuilt in memory on startup)
 
 ---
 
@@ -176,11 +174,11 @@ govt services chatbot/
 ├── static/
 │   └── index.html        ← two-column chat UI (vanilla JS): left info panel (1/3) + right chat (2/3)
 ├── vectors/              ← created by scrape_and_index.py
-│   ├── index.faiss       ← FAISS vector index
-│   └── metadata.json     ← scrape date, chunk text, source URLs
+│   ├── vectors.db        ← SQLite: chunk text, metadata, embedding BLOBs, scrape_info
+│   └── scraped_pages.json ← page cache (avoids re-scraping chicago.gov)
 ├── conversations.db      ← SQLite conversation log (auto-created on first run)
 ├── requirements.txt
-├── .env                  ← ANTHROPIC_API_KEY (not committed)
+├── .env                  ← ANTHROPIC_API_KEY + VOYAGE_API_KEY (not committed)
 ├── .env.example
 └── project_overview.md   ← this file
 ```
@@ -232,7 +230,8 @@ Navigate to [http://localhost:5000](http://localhost:5000) in your browser.
 
 | Component | Cost |
 |---|---|
-| Embeddings (scrape + queries) | **$0** — local BGE model |
+| Embeddings (scrape, ~500 chunks) | ~$0.05 one-time — Voyage AI API ($0.00012/1K tokens) |
+| Embeddings (queries) | ~$0.00004/query — Voyage AI API |
 | Vector search (FAISS) | **$0** — local in-memory |
 | Claude Haiku — input (~3 200 tok/query) | ~$0.0026/query |
 | Claude Haiku — output (~250 tok/query) | ~$0.001/query |
@@ -254,8 +253,8 @@ DigitalOcean).
 
 | Decision | Choice | Reason |
 |---|---|---|
-| Embedding model | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` via fastembed | Multilingual support; 120 MB ONNX; loaded lazily on first request to stay under Render free-tier 512 MB limit |
-| BGE query prefix | `"Represent this sentence for searching relevant passages: "` | Required by BGE for asymmetric retrieval (query ≠ passage) |
+| Embedding model | `voyage-multilingual-2` via Voyage AI API | Multilingual support; no local model download; eliminates ~120 MB ONNX RAM overhead per worker; 1024-dim vectors |
+| Query vs document embedding | `input_type="query"` / `"document"` | Voyage supports asymmetric retrieval natively without a manual prefix |
 | Vector similarity | Inner product on L2-normalised vectors | Mathematically equivalent to cosine similarity; runs in FAISS `IndexFlatIP` |
 | Vector store | FAISS `IndexFlatIP` | Exact search over ~300–500 chunks is instant; no server, no Docker |
 | LLM | Claude `claude-haiku-4-5` | Fastest + cheapest Claude model; sufficient for grounded Q&A |

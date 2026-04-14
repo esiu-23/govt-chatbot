@@ -14,15 +14,17 @@ import multiprocessing
 import json
 import time
 import requests
-import faiss
 import numpy as np
+import voyageai
+import psycopg2
+import psycopg2.extras
+from pgvector.psycopg2 import register_vector
 from datetime import datetime
 from pathlib import Path
 from bs4 import BeautifulSoup
-from fastembed import TextEmbedding
+from dotenv import load_dotenv
 
-# Prevent tokenizers from spawning child processes (causes segfault on macOS)
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Config
@@ -67,11 +69,11 @@ EXTRA_SOURCES = [
 # Max pages to collect per extra source (keeps runtime reasonable)
 EXTRA_SOURCE_MAX_PAGES = 60
 EMBEDDINGS_CKPT      = Path("vectors/embeddings_checkpoint.npz")
-MODEL_NAME           = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+MODEL_NAME           = "voyage-multilingual-2"
 MAX_CHARS            = 2000   # target chunk size (chars; ~500 tokens)
 OVERLAP_CHARS        = 300    # overlap between consecutive chunks
 REQUEST_DELAY        = 0.5    # seconds between HTTP requests (be polite)
-EMBED_BATCH_SIZE     = 8      # smaller batches → lower peak RAM during embedding
+EMBED_BATCH_SIZE     = 64     # Voyage supports up to 128 inputs per request
 HEADERS        = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -400,12 +402,22 @@ def main():
     print(f"  Created {len(all_chunks)} chunks from {len(pages)} pages\n")
 
     # 4. Embed + build FAISS index
-    print(f"Step 4/4 — Embedding with {MODEL_NAME}...")
-    model = TextEmbedding(MODEL_NAME)
+    print(f"Step 4/4 — Embedding with {MODEL_NAME} via Voyage AI API...")
+    voyage_client = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
 
     texts = [c["text"] for c in all_chunks]
-    print(f"  Embedding {len(texts)} chunks...")
-    embeddings = np.array(list(model.embed(texts, batch_size=EMBED_BATCH_SIZE)), dtype=np.float32)
+    print(f"  Embedding {len(texts)} chunks in batches of {EMBED_BATCH_SIZE}...")
+    all_embeddings = []
+    for i in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch = texts[i : i + EMBED_BATCH_SIZE]
+        result = voyage_client.embed(batch, model=MODEL_NAME, input_type="document")
+        all_embeddings.extend(result.embeddings)
+        print(f"  [{min(i + EMBED_BATCH_SIZE, len(texts))}/{len(texts)}] batches embedded")
+
+    embeddings = np.array(all_embeddings, dtype=np.float32)
+    # Normalize to unit vectors so IndexFlatIP == cosine similarity
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    embeddings /= np.maximum(norms, 1e-12)
     print()
 
     # Clear checkpoint on clean finish
@@ -413,29 +425,41 @@ def main():
         EMBEDDINGS_CKPT.unlink()
         print("  Checkpoint cleared.\n")
 
-    dim   = embeddings.shape[1]
-    index = faiss.IndexFlatIP(dim)   # IndexFlatIP on normalised vectors = cosine similarity
-    index.add(embeddings)
-    del embeddings  # free the large array before writing metadata
+    # 5. Write to Supabase
+    print("Step 5/5 — Writing to Supabase...")
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    register_vector(conn)
+    cur = conn.cursor()
 
-    # Persist
-    faiss.write_index(index, str(VECTORS_DIR / "index.faiss"))
+    cur.execute("DELETE FROM scrape_info")
+    cur.execute("DELETE FROM chunks")
 
-    metadata = {
-        "scrape_date"  : scrape_date,
-        "model"        : MODEL_NAME,
-        "total_pages"  : len(pages),
-        "total_chunks" : len(all_chunks),
-        "chunks"       : all_chunks,
-    }
-    with open(VECTORS_DIR / "metadata.json", "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
+    cur.execute(
+        "INSERT INTO scrape_info (scrape_date, model, total_pages, total_chunks) VALUES (%s,%s,%s,%s)",
+        (scrape_date, MODEL_NAME, len(pages), len(all_chunks)),
+    )
+
+    psycopg2.extras.execute_values(
+        cur,
+        "INSERT INTO chunks (id, url, title, text, chunk_index, level1, level2, level3, embedding) "
+        "VALUES %s",
+        [
+            (c["id"], c["url"], c["title"], c["text"],
+             c["chunk_index"], c["level1"], c["level2"], c["level3"],
+             embeddings[i].tolist())
+            for i, c in enumerate(all_chunks)
+        ],
+        page_size=100,
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    del embeddings
 
     print(f"\n=== Done ===")
-    print(f"  {len(all_chunks)} chunks indexed")
-    print(f"  FAISS index  → {VECTORS_DIR}/index.faiss")
-    print(f"  Metadata     → {VECTORS_DIR}/metadata.json")
-    print(f"  Scrape date  : {scrape_date}")
+    print(f"  {len(all_chunks)} chunks written to Supabase")
+    print(f"  Scrape date : {scrape_date}")
 
 
 if __name__ == "__main__":

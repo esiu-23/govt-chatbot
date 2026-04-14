@@ -1,6 +1,6 @@
 {
   "scrape_date": "2026-04-11",
-  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "model": "voyage-multilingual-2",
   "total_pages": 444,
   "total_chunks": 1569,
   "chunks": [
