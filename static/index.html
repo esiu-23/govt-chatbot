@@ -879,27 +879,28 @@
     // RTL support
     document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
     // Header
-    document.getElementById("header-title").textContent = s.headerTitle;
-    document.getElementById("header-subtitle").textContent = s.headerSubtitle;
+    const el = id => document.getElementById(id);
+    if (el("header-title"))       el("header-title").textContent       = s.headerTitle;
+    if (el("header-subtitle"))    el("header-subtitle").textContent    = s.headerSubtitle;
     // Info toggle (mobile)
     const isOpen = infoPanel.classList.contains("mobile-open");
     infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
     // Info panel
-    document.getElementById("about-heading").textContent = s.aboutHeading;
-    document.getElementById("about-text").innerHTML = s.aboutText;
-    document.getElementById("data-notice-el").innerHTML = s.dataNotice;
-    document.getElementById("how-to-heading").textContent = s.howToHeading;
-    document.getElementById("how-to-ol").innerHTML = s.howToItems.map(item => `<li>${item}</li>`).join("");
-    document.getElementById("examples-heading").textContent = s.examplesHeading;
-    s.suggestions.forEach((text, i) => {
-      const btn = document.getElementById(`suggestion-${i}`);
+    if (el("about-heading"))      el("about-heading").textContent      = s.aboutHeading;
+    if (el("about-text"))         el("about-text").innerHTML           = s.aboutText;
+    if (el("data-notice-el"))     el("data-notice-el").innerHTML       = s.dataNotice;
+    if (el("how-to-heading"))     el("how-to-heading").textContent     = s.howToHeading;
+    if (el("how-to-ol"))          el("how-to-ol").innerHTML            = (s.howToItems || []).map(item => `<li>${item}</li>`).join("");
+    if (el("examples-heading"))   el("examples-heading").textContent   = s.examplesHeading;
+    (s.suggestions || []).forEach((text, i) => {
+      const btn = el(`suggestion-${i}`);
       if (btn) btn.textContent = text;
     });
-    document.getElementById("cant-do-heading").textContent = s.cantDoHeading;
-    document.getElementById("cant-do-ul").innerHTML = s.cantDoItems.map(item => `<li>${item}</li>`).join("");
+    if (el("cant-do-heading"))    el("cant-do-heading").textContent    = s.cantDoHeading;
+    if (el("cant-do-ul"))         el("cant-do-ul").innerHTML           = (s.cantDoItems || []).map(item => `<li>${item}</li>`).join("");
     // Feedback strip
-    document.getElementById("feedback-helpful-text").textContent = s.feedbackHelpful;
-    document.getElementById("feedback-cancel").textContent = s.feedbackCancel;
+    if (el("feedback-helpful-text")) el("feedback-helpful-text").textContent = s.feedbackHelpful;
+    if (el("feedback-cancel"))       el("feedback-cancel").textContent       = s.feedbackCancel;
   }
 
   langSel.addEventListener("change", () => applyLang(langSel.value));
