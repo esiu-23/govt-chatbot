@@ -8,6 +8,45 @@
     /* ── Reset & base ─────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── Accessibility utilities ──────────────────────────────────────── */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: absolute;
+      top: -48px;
+      left: 0;
+      background: #003F87;
+      color: #fff;
+      padding: 10px 18px;
+      z-index: 9999;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 0 0 8px 0;
+      transition: top .15s;
+    }
+    .skip-link:focus { top: 0; }
+
+    /* ── Global focus indicator ───────────────────────────────────────── */
+    :focus-visible {
+      outline: 3px solid #003F87;
+      outline-offset: 2px;
+    }
+    header :focus-visible,
+    #lang-select:focus-visible {
+      outline: 3px solid #fff;
+      outline-offset: 2px;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #f0f4f8;
@@ -53,7 +92,8 @@
       color: #fff;
       font-size: 0.8rem;
       font-weight: 600;
-      padding: 6px 12px;
+      padding: 8px 14px;
+      min-height: 36px;
       cursor: pointer;
       flex-shrink: 0;
       white-space: nowrap;
@@ -79,9 +119,9 @@
       border: 1px solid rgba(255,255,255,.4);
       border-radius: 6px;
       padding: 5px 28px 5px 10px;
+      min-height: 36px;
       font-size: 0.8rem;
       cursor: pointer;
-      outline: none;
       appearance: none;
       -webkit-appearance: none;
       /* chevron */
@@ -91,7 +131,6 @@
       transition: background-color .15s, border-color .15s;
     }
     #lang-select:hover  { background-color: rgba(255,255,255,.25); border-color: rgba(255,255,255,.7); }
-    #lang-select:focus  { border-color: #fff; }
     #lang-select option { background: #003F87; color: #fff; }
 
     /* ── Two-column layout ────────────────────────────────────────────── */
@@ -141,9 +180,11 @@
     }
 
     /* ── Do / Don't lists ─────────────────────────────────────────────── */
-    .do-list li::marker   { color: #276749; }
-    .dont-list li::marker { color: #c53030; }
-
+    .info-section .do-list,
+    .info-section .dont-list { list-style: none; padding-left: 0; }
+    .do-list li, .dont-list li { padding-left: 1.4em; text-indent: -1.4em; }
+    .do-list li::before   { content: "✓ "; color: #276749; font-weight: 700; }
+    .dont-list li::before { content: "✗ "; color: #c53030; font-weight: 700; }
     .do-list li   { color: #276749; }
     .dont-list li { color: #c53030; }
 
@@ -158,7 +199,8 @@
       background: #e8f0fe;
       border: 1px solid #c3d3f7;
       color: #003F87;
-      padding: 6px 12px;
+      padding: 8px 14px;
+      min-height: 36px;
       border-radius: 20px;
       font-size: 0.775rem;
       cursor: pointer;
@@ -244,17 +286,16 @@
     .sources strong { display: block; margin-bottom: 4px; }
     .sources a {
       color: #003F87;
-      text-decoration: none;
+      text-decoration: underline;
       display: block;
       margin-top: 2px;
     }
-    .sources a:hover { text-decoration: underline; }
 
     /* ── Disclaimer ───────────────────────────────────────────────────── */
     .disclaimer {
       margin-top: 6px;
       font-size: 0.7rem;
-      color: #718096;
+      color: #4a5568;
       font-style: italic;
     }
 
@@ -318,8 +359,8 @@
       border: 1px solid #cbd5e0;
       border-radius: 24px;
       padding: 10px 18px;
+      min-height: 44px;
       font-size: 0.92rem;
-      outline: none;
       transition: border-color .2s;
     }
     #question:focus { border-color: #003F87; }
@@ -329,6 +370,7 @@
       border: none;
       border-radius: 24px;
       padding: 10px 22px;
+      min-height: 44px;
       font-size: 0.92rem;
       font-weight: 600;
       cursor: pointer;
@@ -344,10 +386,10 @@
       background: #eef3fb;
       border-top: 1px solid #c3d3f7;
       margin-bottom: 1rem;
-      padding-bottom: 1rem;
+      padding-bottom: 0.5rem;
       overflow: hidden;
       transition: max-height .25s ease;
-      max-height: 44px;   /* collapsed height */
+      max-height: 64px;   /* collapsed height */
     }
     #feedback-strip.open { max-height: 200px; }
 
@@ -366,6 +408,8 @@
       border: 1px solid #cbd5e0;
       border-radius: 8px;
       padding: 3px 10px;
+      min-height: 44px;
+      min-width: 44px;
       font-size: 1rem;
       line-height: 1.4;
       cursor: pointer;
@@ -374,6 +418,14 @@
     .thumb-btn:hover       { background: #e8f0fe; border-color: #003F87; }
     .thumb-btn.active-up   { background: #d1fae5; border-color: #276749; }
     .thumb-btn.active-down { background: #fee2e2; border-color: #c53030; }
+    /* Show "(selected)" text after active thumb for non-color indication */
+    .thumb-btn.active-up::after,
+    .thumb-btn.active-down::after {
+      content: " (selected)";
+      font-size: 0.65rem;
+      vertical-align: middle;
+      font-weight: 600;
+    }
 
     #feedback-form {
       display: none;
@@ -399,7 +451,6 @@
       resize: none;
       height: 70px;
       font-family: inherit;
-      outline: none;
       transition: border-color .2s;
     }
     #feedback-note:focus { border-color: #003F87; }
@@ -518,6 +569,8 @@
 </head>
 <body>
 
+<a href="#question" class="skip-link">Skip to chat</a>
+
 <header>
   <div class="flag">
     <div class="flag-stripe blue"></div>
@@ -525,8 +578,8 @@
     <div class="flag-stripe blue"></div>
   </div>
   <div class="header-title">
-    <h1>Chicago City Services Chat Assistant</h1>
-    <p>Powered by chicago.gov, cps.edu, and chicagoparkdistrict.com</p>
+    <h1 id="header-title">Chicago City Services Chat Assistant</h1>
+    <p id="header-subtitle">Powered by chicago.gov, cps.edu, and chicagoparkdistrict.com</p>
   </div>
 
   <button id="info-toggle" onclick="toggleInfoPanel()" aria-label="Show info">Info</button>
@@ -552,18 +605,20 @@
     <button id="info-panel-close" onclick="toggleInfoPanel()" aria-label="Close info panel">Close ✕</button>
 
     <div class="info-section">
-      <h2>About This Tool</h2>
-      <p>This is a helper tool that answers questions about <strong>City of Chicago services</strong>. It covers city departments, Chicago Public Schools, and the Chicago Park District. <strong>Note this is not an official city tool.</strong></p>
-      <p style="margin-top:8px">All answers come from <strong>chicago.gov</strong>, <strong>cps.edu</strong>, and <strong>chicagoparkdistrict.com</strong>. Think of it as a smart search through city websites.</p>
+      <h2 id="about-heading">About This Tool</h2>
+      <div id="about-text">
+        <p>This is a helper tool that answers questions about <strong>City of Chicago services</strong>. It covers city departments, Chicago Public Schools, and the Chicago Park District. <strong>Note this is not an official city tool.</strong></p>
+        <p style="margin-top:8px">All answers come from <strong>chicago.gov</strong>, <strong>cps.edu</strong>, and <strong>chicagoparkdistrict.com</strong>. Think of it as a smart search through city websites.</p>
+      </div>
     </div>
 
-    <div class="data-notice">
+    <div class="data-notice" id="data-notice-el">
       <strong>Data notice:</strong> This tool uses limited saved snapshots of chicago.gov, cps.edu, and chicagoparkdistrict.com as of 4/11/26. The answers show the date when the information was last collected. For the most current details, follow the source links in each answer.
     </div>
 
     <div class="info-section">
-      <h2>How to Use It</h2>
-      <ol>
+      <h2 id="how-to-heading">How to Use It</h2>
+      <ol id="how-to-ol">
         <li>Type your question in plain English — no special words needed.</li>
         <li>Hit <strong>Send</strong> or press <strong>Enter</strong>.</li>
         <li>Read the answer and check the source links if you want to learn more.</li>
@@ -572,18 +627,18 @@
     </div>
 
     <div class="info-section">
-      <h2>Example Questions to Ask</h2>
+      <h2 id="examples-heading">Example Questions to Ask</h2>
       <div class="suggestions">
-        <button class="suggestion-btn" onclick="ask(this)">How do I get a business license?</button>
-        <button class="suggestion-btn" onclick="ask(this)">How do I enroll my child in CPS?</button>
-        <button class="suggestion-btn" onclick="ask(this)">What free programs does Chicago offer for kids?</button>
-        <button class="suggestion-btn" onclick="ask(this)">Where can I find free job training programs?</button>
+        <button class="suggestion-btn" id="suggestion-0" onclick="ask(this)">How do I get a business license?</button>
+        <button class="suggestion-btn" id="suggestion-1" onclick="ask(this)">How do I enroll my child in CPS?</button>
+        <button class="suggestion-btn" id="suggestion-2" onclick="ask(this)">What free programs does Chicago offer for kids?</button>
+        <button class="suggestion-btn" id="suggestion-3" onclick="ask(this)">Where can I find free job training programs?</button>
       </div>
     </div>
 
     <div class="info-section">
-      <h2>What It Can't Do</h2>
-      <ul class="dont-list">
+      <h2 id="cant-do-heading">What It Can't Do</h2>
+      <ul class="dont-list" id="cant-do-ul">
         <li>It cannot access your personal city accounts or records.</li>
         <li>It cannot process payments or applications.</li>
         <li>It cannot answer questions unrelated to Chicago city services, schools, or parks.</li>
@@ -594,10 +649,10 @@
   </aside>
 
   <!-- ── Right chat panel (2/3) ─────────────────────────────────────── -->
-  <div id="chat-panel">
-    <div id="chat">
+  <main id="chat-panel">
+    <div id="chat" role="log" aria-live="polite" aria-label="Chat messages">
       <div class="empty-state">
-        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
         <p>Ask a question to get started.</p>
@@ -605,27 +660,29 @@
     </div>
 
     <div id="input-bar">
-      <input id="question" type="text" placeholder="Ask about Chicago city services…" autocomplete="off" autofocus />
-      <button id="send" onclick="sendMessage()">Send</button>
+      <label for="question" class="sr-only">Ask a question about Chicago city services</label>
+      <input id="question" type="text" placeholder="Ask about Chicago city services…" autocomplete="off" />
+      <button id="send" aria-label="Send question" onclick="sendMessage()">Send</button>
     </div>
 
     <!-- ── Feedback strip ───────────────────────────────────────────── -->
     <div id="feedback-strip">
       <div id="feedback-collapsed">
-        <span>Find this helpful?</span>
-        <button class="thumb-btn" id="thumb-up"   onclick="chooseFeedback('up')">👍</button>
-        <button class="thumb-btn" id="thumb-down" onclick="chooseFeedback('down')">👎</button>
+        <span id="feedback-helpful-text">Find this helpful?</span>
+        <button class="thumb-btn" id="thumb-up"   aria-label="Helpful" aria-pressed="false" onclick="chooseFeedback('up')">👍</button>
+        <button class="thumb-btn" id="thumb-down" aria-label="Not helpful" aria-pressed="false" onclick="chooseFeedback('down')">👎</button>
       </div>
       <div id="feedback-form">
         <p id="feedback-subtext"></p>
+        <label for="feedback-note" class="sr-only">Additional feedback (optional)</label>
         <textarea id="feedback-note" placeholder="" rows="3"></textarea>
         <div id="feedback-actions">
-          <button class="fb-btn" id="feedback-cancel" onclick="closeFeedback()">Cancel</button>
-          <button class="fb-btn" id="feedback-send"   onclick="submitFeedback()">Send</button>
+          <button class="fb-btn" id="feedback-cancel" aria-label="Cancel feedback" onclick="closeFeedback()">Cancel</button>
+          <button class="fb-btn" id="feedback-send"   aria-label="Submit feedback" onclick="submitFeedback()">Send</button>
         </div>
       </div>
     </div>
-  </div>
+  </main>
 
 </div>
 
@@ -636,7 +693,8 @@
 
   function toggleInfoPanel() {
     const isOpen = infoPanel.classList.toggle("mobile-open");
-    infoToggle.textContent = isOpen ? "Close" : "Info";
+    const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
+    infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
     infoToggle.setAttribute("aria-expanded", isOpen);
   }
 
@@ -648,7 +706,8 @@
       e.target !== infoToggle
     ) {
       infoPanel.classList.remove("mobile-open");
-      infoToggle.textContent = "Info";
+      const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
+      infoToggle.textContent = s.infoToggle;
       infoToggle.setAttribute("aria-expanded", false);
     }
   });
@@ -667,31 +726,151 @@
 
   // ── UI translations ──────────────────────────────────────────────────────
   const UI_STRINGS = {
-    en: { placeholder: "Ask about Chicago city services…", send: "Send",
-          empty: "Ask a question to get started.", langLabel: "Language",
-          sources: "Sources", serverError: "Could not reach the server. Make sure api.py is running." },
-    es: { placeholder: "Pregunte sobre los servicios de la ciudad de Chicago…", send: "Enviar",
-          empty: "Haga una pregunta para comenzar.", langLabel: "Idioma",
-          sources: "Fuentes", serverError: "No se pudo conectar al servidor. Asegúrese de que api.py esté en ejecución." },
-    pl: { placeholder: "Zapytaj o usługi miasta Chicago…", send: "Wyślij",
-          empty: "Zadaj pytanie, aby zacząć.", langLabel: "Język",
-          sources: "Źródła", serverError: "Nie można połączyć się z serwerem. Upewnij się, że api.py działa." },
-    zh: { placeholder: "询问芝加哥市政服务…", send: "发送",
-          empty: "提问以开始。", langLabel: "语言",
-          sources: "来源", serverError: "无法连接服务器，请确保 api.py 正在运行。" },
-    ar: { placeholder: "اسأل عن خدمات مدينة شيكاغو…", send: "إرسال",
-          empty: "اطرح سؤالاً للبدء.", langLabel: "اللغة",
-          sources: "المصادر", serverError: "تعذّر الوصول إلى الخادم. تأكد من تشغيل api.py." },
-    tl: { placeholder: "Magtanong tungkol sa mga serbisyo ng lungsod ng Chicago…", send: "Ipadala",
-          empty: "Magtanong para makapagsimula.", langLabel: "Wika",
-          sources: "Mga Pinagkukunan", serverError: "Hindi makakonekta sa server. Siguraduhing tumatakbo ang api.py." },
-    hi: { placeholder: "शिकागो शहर की सेवाओं के बारे में पूछें…", send: "भेजें",
-          empty: "शुरू करने के लिए कोई प्रश्न पूछें।", langLabel: "भाषा",
-          sources: "स्रोत", serverError: "सर्वर से कनेक्ट नहीं हो सका। सुनिश्चित करें कि api.py चल रहा है।" },
+    en: {
+      placeholder: "Ask about Chicago city services…", send: "Send",
+      empty: "Ask a question to get started.", langLabel: "Language",
+      sources: "Sources", serverError: "Could not reach the server. Make sure api.py is running.",
+      headerTitle: "Chicago City Services Chat Assistant",
+      headerSubtitle: "Powered by chicago.gov, cps.edu, and chicagoparkdistrict.com",
+      infoToggle: "Info", infoToggleClose: "Close",
+      aboutHeading: "About This Tool",
+      aboutText: `<p>This is a helper tool that answers questions about <strong>City of Chicago services</strong>. It covers city departments, Chicago Public Schools, and the Chicago Park District. <strong>Note this is not an official city tool.</strong></p><p style="margin-top:8px">All answers come from <strong>chicago.gov</strong>, <strong>cps.edu</strong>, and <strong>chicagoparkdistrict.com</strong>. Think of it as a smart search through city websites.</p>`,
+      dataNotice: `<strong>Data notice:</strong> This tool uses limited saved snapshots of chicago.gov, cps.edu, and chicagoparkdistrict.com as of 4/11/26. The answers show the date when the information was last collected. For the most current details, follow the source links in each answer.`,
+      howToHeading: "How to Use It",
+      howToItems: ["Type your question in plain English — no special words needed.", "Hit <strong>Send</strong> or press <strong>Enter</strong>.", "Read the answer and check the source links if you want to learn more.", "Ask follow-up questions any time!"],
+      examplesHeading: "Example Questions to Ask",
+      suggestions: ["How do I get a business license?", "How do I enroll my child in CPS?", "What free programs does Chicago offer for kids?", "Where can I find free job training programs?"],
+      cantDoHeading: "What It Can't Do",
+      cantDoItems: ["It cannot access your personal city accounts or records.", "It cannot process payments or applications.", "It cannot answer questions unrelated to Chicago city services, schools, or parks.", "It may not have the very latest updates — always verify with the official site for urgent matters."],
+      feedbackHelpful: "Find this helpful?",
+      feedbackUpSubtext: "Tell us why it's helpful (optional).", feedbackDownSubtext: "Tell us what we can improve (optional).",
+      feedbackSendLabel: "Share Feedback", feedbackSuccess: "✓ Thanks for your feedback!", feedbackCancel: "Cancel",
+    },
+    es: {
+      placeholder: "Pregunte sobre los servicios de la ciudad de Chicago…", send: "Enviar",
+      empty: "Haga una pregunta para comenzar.", langLabel: "Idioma",
+      sources: "Fuentes", serverError: "No se pudo conectar al servidor. Asegúrese de que api.py esté en ejecución.",
+      headerTitle: "Asistente de Servicios de la Ciudad de Chicago",
+      headerSubtitle: "Basado en chicago.gov, cps.edu y chicagoparkdistrict.com",
+      infoToggle: "Info", infoToggleClose: "Cerrar",
+      aboutHeading: "Acerca de Esta Herramienta",
+      aboutText: `<p>Esta es una herramienta de ayuda que responde preguntas sobre los <strong>servicios de la Ciudad de Chicago</strong>. Cubre departamentos de la ciudad, Escuelas Públicas de Chicago y el Distrito de Parques de Chicago. <strong>Nota: esta no es una herramienta oficial de la ciudad.</strong></p><p style="margin-top:8px">Todas las respuestas provienen de <strong>chicago.gov</strong>, <strong>cps.edu</strong> y <strong>chicagoparkdistrict.com</strong>. Piénselo como una búsqueda inteligente en los sitios web de la ciudad.</p>`,
+      dataNotice: `<strong>Aviso de datos:</strong> Esta herramienta usa instantáneas guardadas de chicago.gov, cps.edu y chicagoparkdistrict.com al 11/4/26. Las respuestas muestran la fecha en que se recopiló la información. Para los detalles más actuales, siga los enlaces de fuente en cada respuesta.`,
+      howToHeading: "Cómo Usarla",
+      howToItems: ["Escriba su pregunta en español simple — no necesita palabras especiales.", "Haga clic en <strong>Enviar</strong> o presione <strong>Enter</strong>.", "Lea la respuesta y revise los enlaces de fuente si desea saber más.", "¡Haga preguntas de seguimiento en cualquier momento!"],
+      examplesHeading: "Preguntas de Ejemplo",
+      suggestions: ["¿Cómo obtengo una licencia de negocios?", "¿Cómo inscribo a mi hijo en CPS?", "¿Qué programas gratuitos ofrece Chicago para niños?", "¿Dónde puedo encontrar programas de capacitación laboral gratuitos?"],
+      cantDoHeading: "Lo Que No Puede Hacer",
+      cantDoItems: ["No puede acceder a sus cuentas o registros personales de la ciudad.", "No puede procesar pagos ni solicitudes.", "No puede responder preguntas no relacionadas con los servicios, escuelas o parques de Chicago.", "Es posible que no tenga las últimas actualizaciones — verifique siempre con el sitio oficial para asuntos urgentes."],
+      feedbackHelpful: "¿Le resultó útil?",
+      feedbackUpSubtext: "Cuéntenos por qué es útil (opcional).", feedbackDownSubtext: "Cuéntenos qué podemos mejorar (opcional).",
+      feedbackSendLabel: "Enviar Comentario", feedbackSuccess: "✓ ¡Gracias por su comentario!", feedbackCancel: "Cancelar",
+    },
+    pl: {
+      placeholder: "Zapytaj o usługi miasta Chicago…", send: "Wyślij",
+      empty: "Zadaj pytanie, aby zacząć.", langLabel: "Język",
+      sources: "Źródła", serverError: "Nie można połączyć się z serwerem. Upewnij się, że api.py działa.",
+      headerTitle: "Asystent Usług Miejskich Chicago",
+      headerSubtitle: "Oparte na chicago.gov, cps.edu i chicagoparkdistrict.com",
+      infoToggle: "Info", infoToggleClose: "Zamknij",
+      aboutHeading: "O Tym Narzędziu",
+      aboutText: `<p>To narzędzie pomocnicze odpowiada na pytania dotyczące <strong>usług Miasta Chicago</strong>. Obejmuje wydziały miejskie, Szkoły Publiczne Chicago i Dystrykt Parkowy Chicago. <strong>Uwaga: nie jest to oficjalne narzędzie miejskie.</strong></p><p style="margin-top:8px">Wszystkie odpowiedzi pochodzą z <strong>chicago.gov</strong>, <strong>cps.edu</strong> i <strong>chicagoparkdistrict.com</strong>. Potraktuj to jako inteligentne wyszukiwanie na stronach miejskich.</p>`,
+      dataNotice: `<strong>Informacja o danych:</strong> To narzędzie korzysta z zapisanych migawek chicago.gov, cps.edu i chicagoparkdistrict.com z 11.04.26. Odpowiedzi pokazują datę ostatniego zebrania informacji. Aby uzyskać najnowsze szczegóły, kliknij linki źródłowe w każdej odpowiedzi.`,
+      howToHeading: "Jak Używać",
+      howToItems: ["Wpisz pytanie prostymi słowami — nie potrzeba specjalnych zwrotów.", "Kliknij <strong>Wyślij</strong> lub naciśnij <strong>Enter</strong>.", "Przeczytaj odpowiedź i sprawdź linki źródłowe, jeśli chcesz dowiedzieć się więcej.", "Zadawaj pytania uzupełniające w dowolnym momencie!"],
+      examplesHeading: "Przykładowe Pytania",
+      suggestions: ["Jak uzyskać licencję na działalność gospodarczą?", "Jak zapisać dziecko do CPS?", "Jakie bezpłatne programy dla dzieci oferuje Chicago?", "Gdzie mogę znaleźć bezpłatne programy szkolenia zawodowego?"],
+      cantDoHeading: "Czego Nie Może Zrobić",
+      cantDoItems: ["Nie może uzyskać dostępu do Twoich osobistych kont lub akt miejskich.", "Nie może przetwarzać płatności ani wniosków.", "Nie może odpowiadać na pytania niezwiązane z usługami, szkołami lub parkami Chicago.", "Może nie mieć najnowszych aktualizacji — zawsze weryfikuj na oficjalnej stronie w pilnych sprawach."],
+      feedbackHelpful: "Czy to pomocne?",
+      feedbackUpSubtext: "Powiedz nam, dlaczego jest pomocne (opcjonalnie).", feedbackDownSubtext: "Powiedz nam, co możemy poprawić (opcjonalnie).",
+      feedbackSendLabel: "Prześlij opinię", feedbackSuccess: "✓ Dziękujemy za opinię!", feedbackCancel: "Anuluj",
+    },
+    zh: {
+      placeholder: "询问芝加哥市政服务…", send: "发送",
+      empty: "提问以开始。", langLabel: "语言",
+      sources: "来源", serverError: "无法连接服务器，请确保 api.py 正在运行。",
+      headerTitle: "芝加哥市政服务聊天助手",
+      headerSubtitle: "基于 chicago.gov、cps.edu 和 chicagoparkdistrict.com",
+      infoToggle: "信息", infoToggleClose: "关闭",
+      aboutHeading: "关于本工具",
+      aboutText: `<p>这是一个回答有关<strong>芝加哥市政服务</strong>问题的辅助工具。涵盖市政部门、芝加哥公立学校和芝加哥公园区。<strong>注意：这不是官方城市工具。</strong></p><p style="margin-top:8px">所有答案来自 <strong>chicago.gov</strong>、<strong>cps.edu</strong> 和 <strong>chicagoparkdistrict.com</strong>。可以把它看作对城市网站的智能搜索。</p>`,
+      dataNotice: `<strong>数据说明：</strong>本工具使用截至2026年4月11日的 chicago.gov、cps.edu 和 chicagoparkdistrict.com 的有限快照。答案显示信息最后收集的日期。如需最新详情，请点击每个答案中的来源链接。`,
+      howToHeading: "如何使用",
+      howToItems: ["用简单语言输入您的问题 — 无需特殊词汇。", "点击<strong>发送</strong>或按<strong>Enter</strong>键。", "阅读答案，如需了解更多，请查看来源链接。", "随时提问后续问题！"],
+      examplesHeading: "示例问题",
+      suggestions: ["如何申请营业执照？", "如何为孩子报名CPS？", "芝加哥为儿童提供哪些免费项目？", "哪里可以找到免费职业培训项目？"],
+      cantDoHeading: "本工具无法做到",
+      cantDoItems: ["无法访问您的个人城市账户或记录。", "无法处理付款或申请。", "无法回答与芝加哥市政服务、学校或公园无关的问题。", "可能没有最新更新 — 对于紧急事项，请始终在官方网站上核实。"],
+      feedbackHelpful: "觉得有帮助吗？",
+      feedbackUpSubtext: "告诉我们为什么有帮助（可选）。", feedbackDownSubtext: "告诉我们可以改进的地方（可选）。",
+      feedbackSendLabel: "提交反馈", feedbackSuccess: "✓ 感谢您的反馈！", feedbackCancel: "取消",
+    },
+    ar: {
+      placeholder: "اسأل عن خدمات مدينة شيكاغو…", send: "إرسال",
+      empty: "اطرح سؤالاً للبدء.", langLabel: "اللغة",
+      sources: "المصادر", serverError: "تعذّر الوصول إلى الخادم. تأكد من تشغيل api.py.",
+      headerTitle: "مساعد خدمات مدينة شيكاغو",
+      headerSubtitle: "مدعوم من chicago.gov وcps.edu وchicagoparkdistrict.com",
+      infoToggle: "معلومات", infoToggleClose: "إغلاق",
+      aboutHeading: "عن هذه الأداة",
+      aboutText: `<p>هذه أداة مساعدة تجيب على الأسئلة المتعلقة بـ<strong>خدمات مدينة شيكاغو</strong>. تغطي الأقسام البلدية ومدارس شيكاغو العامة ومنطقة متنزهات شيكاغو. <strong>ملاحظة: هذه ليست أداة رسمية للمدينة.</strong></p><p style="margin-top:8px">جميع الإجابات مأخوذة من <strong>chicago.gov</strong> و<strong>cps.edu</strong> و<strong>chicagoparkdistrict.com</strong>. فكّر فيها كبحث ذكي عبر مواقع المدينة.</p>`,
+      dataNotice: `<strong>إشعار البيانات:</strong> تستخدم هذه الأداة لقطات محدودة محفوظة من chicago.gov وcps.edu وchicagoparkdistrict.com اعتباراً من 11/4/26. تُظهر الإجابات تاريخ آخر جمع للمعلومات. للحصول على أحدث التفاصيل، اتبع روابط المصادر في كل إجابة.`,
+      howToHeading: "كيفية الاستخدام",
+      howToItems: ["اكتب سؤالك بلغة بسيطة — لا حاجة لكلمات خاصة.", "انقر على <strong>إرسال</strong> أو اضغط <strong>Enter</strong>.", "اقرأ الإجابة وتحقق من روابط المصادر إذا أردت معرفة المزيد.", "اطرح أسئلة متابعة في أي وقت!"],
+      examplesHeading: "أمثلة على الأسئلة",
+      suggestions: ["كيف أحصل على ترخيص تجاري؟", "كيف أسجّل طفلي في CPS؟", "ما البرامج المجانية التي تقدمها شيكاغو للأطفال؟", "أين أجد برامج تدريب مهني مجانية؟"],
+      cantDoHeading: "ما لا تستطيع الأداة فعله",
+      cantDoItems: ["لا تستطيع الوصول إلى حساباتك أو سجلاتك الشخصية في المدينة.", "لا تستطيع معالجة المدفوعات أو الطلبات.", "لا تستطيع الإجابة على أسئلة لا علاقة لها بخدمات شيكاغو أو مدارسها أو متنزهاتها.", "قد لا تملك أحدث التحديثات — تحقق دائماً من الموقع الرسمي للأمور العاجلة."],
+      feedbackHelpful: "هل وجدت هذا مفيداً؟",
+      feedbackUpSubtext: "أخبرنا لماذا هو مفيد (اختياري).", feedbackDownSubtext: "أخبرنا بما يمكن تحسينه (اختياري).",
+      feedbackSendLabel: "إرسال الملاحظات", feedbackSuccess: "✓ شكراً لملاحظاتك!", feedbackCancel: "إلغاء",
+    },
+    tl: {
+      placeholder: "Magtanong tungkol sa mga serbisyo ng lungsod ng Chicago…", send: "Ipadala",
+      empty: "Magtanong para makapagsimula.", langLabel: "Wika",
+      sources: "Mga Pinagkukunan", serverError: "Hindi makakonekta sa server. Siguraduhing tumatakbo ang api.py.",
+      headerTitle: "Tagapagtulong sa Mga Serbisyo ng Lungsod ng Chicago",
+      headerSubtitle: "Pinapatakbo ng chicago.gov, cps.edu, at chicagoparkdistrict.com",
+      infoToggle: "Impo", infoToggleClose: "Isara",
+      aboutHeading: "Tungkol sa Tool na Ito",
+      aboutText: `<p>Ito ay isang tool na sumasagot ng mga tanong tungkol sa <strong>mga serbisyo ng Lungsod ng Chicago</strong>. Sumasaklaw ito sa mga departamento ng lungsod, Chicago Public Schools, at Chicago Park District. <strong>Paalala: hindi ito opisyal na tool ng lungsod.</strong></p><p style="margin-top:8px">Lahat ng sagot ay nagmumula sa <strong>chicago.gov</strong>, <strong>cps.edu</strong>, at <strong>chicagoparkdistrict.com</strong>. Isipin ito bilang matalinong paghahanap sa mga website ng lungsod.</p>`,
+      dataNotice: `<strong>Paunawa sa datos:</strong> Gumagamit ang tool na ito ng mga limitadong naka-save na snapshot ng chicago.gov, cps.edu, at chicagoparkdistrict.com noong 4/11/26. Ipinapakita ng mga sagot ang petsa ng huling koleksyon ng impormasyon. Para sa pinakabagong detalye, sundin ang mga link ng pinagkukunan sa bawat sagot.`,
+      howToHeading: "Paano Gamitin",
+      howToItems: ["I-type ang iyong tanong sa simpleng salita — walang espesyal na salitang kailangan.", "I-click ang <strong>Ipadala</strong> o pindutin ang <strong>Enter</strong>.", "Basahin ang sagot at tingnan ang mga link ng pinagkukunan kung gusto mong matuto pa.", "Magtanong ng mga follow-up na tanong anumang oras!"],
+      examplesHeading: "Mga Halimbawa ng Tanong",
+      suggestions: ["Paano makakakuha ng business license?", "Paano mag-enroll ng aking anak sa CPS?", "Anong mga libreng programa ang inaalok ng Chicago para sa mga bata?", "Saan makakakita ng libreng programa sa pagsasanay sa trabaho?"],
+      cantDoHeading: "Hindi Nito Magagawa",
+      cantDoItems: ["Hindi nito ma-access ang iyong mga personal na account o rekord sa lungsod.", "Hindi nito mapoproseso ang mga bayad o aplikasyon.", "Hindi nito masasagot ang mga tanong na walang kaugnayan sa mga serbisyo, paaralan, o parke ng Chicago.", "Maaaring wala itong pinakabagong mga update — palaging i-verify sa opisyal na site para sa mahahalagang bagay."],
+      feedbackHelpful: "Nakatulong ba ito?",
+      feedbackUpSubtext: "Sabihin sa amin kung bakit ito kapaki-pakinabang (opsyonal).", feedbackDownSubtext: "Sabihin sa amin kung ano ang maaari naming pagbutihin (opsyonal).",
+      feedbackSendLabel: "Ibahagi ang Feedback", feedbackSuccess: "✓ Salamat sa iyong feedback!", feedbackCancel: "Kanselahin",
+    },
+    hi: {
+      placeholder: "शिकागो शहर की सेवाओं के बारे में पूछें…", send: "भेजें",
+      empty: "शुरू करने के लिए कोई प्रश्न पूछें।", langLabel: "भाषा",
+      sources: "स्रोत", serverError: "सर्वर से कनेक्ट नहीं हो सका। सुनिश्चित करें कि api.py चल रहा है।",
+      headerTitle: "शिकागो सिटी सेवाएं चैट सहायक",
+      headerSubtitle: "chicago.gov, cps.edu और chicagoparkdistrict.com द्वारा संचालित",
+      infoToggle: "जानकारी", infoToggleClose: "बंद करें",
+      aboutHeading: "इस टूल के बारे में",
+      aboutText: `<p>यह एक सहायक टूल है जो <strong>शिकागो शहर की सेवाओं</strong> के बारे में सवालों का जवाब देता है। इसमें शहर के विभाग, शिकागो पब्लिक स्कूल और शिकागो पार्क डिस्ट्रिक्ट शामिल हैं। <strong>नोट: यह शहर का आधिकारिक टूल नहीं है।</strong></p><p style="margin-top:8px">सभी जवाब <strong>chicago.gov</strong>, <strong>cps.edu</strong> और <strong>chicagoparkdistrict.com</strong> से आते हैं। इसे शहर की वेबसाइटों पर एक स्मार्ट खोज के रूप में सोचें।</p>`,
+      dataNotice: `<strong>डेटा नोटिस:</strong> यह टूल 11/4/26 तक के chicago.gov, cps.edu और chicagoparkdistrict.com के सीमित सहेजे गए स्नैपशॉट का उपयोग करता है। जवाबों में जानकारी अंतिम बार एकत्र की गई तारीख दिखाई जाती है। सबसे नवीनतम विवरण के लिए, प्रत्येक जवाब में स्रोत लिंक का पालन करें।`,
+      howToHeading: "इसका उपयोग कैसे करें",
+      howToItems: ["सरल भाषा में अपना सवाल टाइप करें — कोई विशेष शब्द की जरूरत नहीं।", "<strong>भेजें</strong> पर क्लिक करें या <strong>Enter</strong> दबाएं।", "जवाब पढ़ें और अधिक जानने के लिए स्रोत लिंक देखें।", "कभी भी फॉलो-अप प्रश्न पूछें!"],
+      examplesHeading: "पूछने के लिए उदाहरण प्रश्न",
+      suggestions: ["व्यापार लाइसेंस कैसे प्राप्त करें?", "CPS में अपने बच्चे को कैसे नामांकित करें?", "शिकागो बच्चों के लिए क्या मुफ्त कार्यक्रम प्रदान करता है?", "मुफ्त नौकरी प्रशिक्षण कार्यक्रम कहाँ मिल सकते हैं?"],
+      cantDoHeading: "यह क्या नहीं कर सकता",
+      cantDoItems: ["यह आपके व्यक्तिगत शहरी खातों या रिकॉर्ड तक नहीं पहुंच सकता।", "यह भुगतान या आवेदन प्रक्रिया नहीं कर सकता।", "यह शिकागो शहर की सेवाओं, स्कूलों या पार्कों से असंबंधित प्रश्नों का जवाब नहीं दे सकता।", "हो सकता है कि इसमें सबसे नवीनतम अपडेट न हों — अत्यावश्यक मामलों के लिए हमेशा आधिकारिक साइट पर सत्यापित करें।"],
+      feedbackHelpful: "क्या यह सहायक लगा?",
+      feedbackUpSubtext: "हमें बताएं यह क्यों सहायक है (वैकल्पिक)।", feedbackDownSubtext: "हमें बताएं हम क्या सुधार सकते हैं (वैकल्पिक)।",
+      feedbackSendLabel: "फीडबैक साझा करें", feedbackSuccess: "✓ आपकी प्रतिक्रिया के लिए धन्यवाद!", feedbackCancel: "रद्द करें",
+    },
   };
 
   function applyLang(lang) {
     const s = UI_STRINGS[lang] || UI_STRINGS.en;
+    // Chat UI
     inputEl.placeholder = s.placeholder;
     sendBtn.textContent = s.send;
     document.getElementById("lang-label").textContent = s.langLabel;
@@ -699,6 +878,28 @@
     if (emptyP) emptyP.textContent = s.empty;
     // RTL support
     document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
+    // Header
+    document.getElementById("header-title").textContent = s.headerTitle;
+    document.getElementById("header-subtitle").textContent = s.headerSubtitle;
+    // Info toggle (mobile)
+    const isOpen = infoPanel.classList.contains("mobile-open");
+    infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
+    // Info panel
+    document.getElementById("about-heading").textContent = s.aboutHeading;
+    document.getElementById("about-text").innerHTML = s.aboutText;
+    document.getElementById("data-notice-el").innerHTML = s.dataNotice;
+    document.getElementById("how-to-heading").textContent = s.howToHeading;
+    document.getElementById("how-to-ol").innerHTML = s.howToItems.map(item => `<li>${item}</li>`).join("");
+    document.getElementById("examples-heading").textContent = s.examplesHeading;
+    s.suggestions.forEach((text, i) => {
+      const btn = document.getElementById(`suggestion-${i}`);
+      if (btn) btn.textContent = text;
+    });
+    document.getElementById("cant-do-heading").textContent = s.cantDoHeading;
+    document.getElementById("cant-do-ul").innerHTML = s.cantDoItems.map(item => `<li>${item}</li>`).join("");
+    // Feedback strip
+    document.getElementById("feedback-helpful-text").textContent = s.feedbackHelpful;
+    document.getElementById("feedback-cancel").textContent = s.feedbackCancel;
   }
 
   langSel.addEventListener("change", () => applyLang(langSel.value));
@@ -807,7 +1008,17 @@
 
     const bubble  = document.createElement("div");
     bubble.className = "bubble";
-    bubble.innerHTML = linkify(answer);
+    if (isLimit) bubble.setAttribute("role", "alert");
+    if (isClarification) {
+      const noteLabel = document.createElement("strong");
+      noteLabel.textContent = "Note: ";
+      bubble.appendChild(noteLabel);
+      const textNode = document.createElement("span");
+      textNode.innerHTML = linkify(answer);
+      bubble.appendChild(textNode);
+    } else {
+      bubble.innerHTML = linkify(answer);
+    }
     msg.appendChild(bubble);
 
     // Sources (omit for clarifying questions and limit messages)
@@ -837,7 +1048,8 @@
   function appendTyping() {
     const msg    = document.createElement("div");
     msg.className = "msg bot typing";
-    msg.innerHTML = `<div class="bubble">
+    msg.setAttribute("aria-label", "Assistant is typing");
+    msg.innerHTML = `<div class="bubble" aria-hidden="true">
       <span class="dot"></span>
       <span class="dot"></span>
       <span class="dot"></span>
@@ -865,26 +1077,22 @@
 
   let currentFeedbackType = null;   // 'up' | 'down'
 
-  const FEEDBACK_CONFIG = {
-    up:   { subtext: "Tell us why it's helpful (optional).",
-            sendLabel: "Share Feedback",
-            successMsg: "✓ Thanks for your feedback!" },
-    down: { subtext: "Tell us what we can improve (optional).",
-            sendLabel: "Share Feedback",
-            successMsg: "✓ Thanks for your feedback!" },
-  };
-
   function chooseFeedback(type) {
     currentFeedbackType = type;
-    const cfg = FEEDBACK_CONFIG[type];
+    const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
+    const subtext = type === "up" ? s.feedbackUpSubtext : s.feedbackDownSubtext;
 
-    // Highlight the chosen thumb
-    document.getElementById("thumb-up").classList.toggle("active-up",   type === "up");
-    document.getElementById("thumb-down").classList.toggle("active-down", type === "down");
+    // Highlight the chosen thumb and update aria-pressed
+    const thumbUp   = document.getElementById("thumb-up");
+    const thumbDown = document.getElementById("thumb-down");
+    thumbUp.classList.toggle("active-up",   type === "up");
+    thumbDown.classList.toggle("active-down", type === "down");
+    thumbUp.setAttribute("aria-pressed",   String(type === "up"));
+    thumbDown.setAttribute("aria-pressed", String(type === "down"));
 
-    feedbackSubtext.textContent  = cfg.subtext;
-    feedbackNote.placeholder     = cfg.subtext;
-    feedbackSend.textContent     = cfg.sendLabel;
+    feedbackSubtext.textContent  = subtext;
+    feedbackNote.placeholder     = subtext;
+    feedbackSend.textContent     = s.feedbackSendLabel;
     feedbackSend.disabled        = false;
 
     feedbackStrip.classList.add("open");
@@ -895,13 +1103,17 @@
     feedbackStrip.classList.remove("open");
     feedbackNote.value = "";
     currentFeedbackType = null;
-    document.getElementById("thumb-up").classList.remove("active-up");
-    document.getElementById("thumb-down").classList.remove("active-down");
+    const thumbUp   = document.getElementById("thumb-up");
+    const thumbDown = document.getElementById("thumb-down");
+    thumbUp.classList.remove("active-up");
+    thumbDown.classList.remove("active-down");
+    thumbUp.setAttribute("aria-pressed", "false");
+    thumbDown.setAttribute("aria-pressed", "false");
   }
 
   function submitFeedback() {
     if (!currentFeedbackType) return;
-    const cfg  = FEEDBACK_CONFIG[currentFeedbackType];
+    const s    = UI_STRINGS[langSel.value] || UI_STRINGS.en;
     const note = feedbackNote.value.trim();
 
     feedbackSend.disabled    = true;
@@ -915,17 +1127,17 @@
     .then(r => r.json())
     .then(data => {
       if (data.ok) {
-        feedbackSend.textContent = cfg.successMsg;
+        feedbackSend.textContent = s.feedbackSuccess;
         setTimeout(closeFeedback, 2000);
       } else {
         feedbackSend.disabled    = false;
-        feedbackSend.textContent = cfg.sendLabel;
+        feedbackSend.textContent = s.feedbackSendLabel;
         alert("Something went wrong: " + (data.error || "unknown error"));
       }
     })
     .catch(() => {
       feedbackSend.disabled    = false;
-      feedbackSend.textContent = cfg.sendLabel;
+      feedbackSend.textContent = s.feedbackSendLabel;
       alert("Could not reach the server.");
     });
   }
