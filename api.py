@@ -938,6 +938,7 @@ def chat():
         app.logger.info("Context window exceeded: %s", exc)
         return jsonify({
             "type"   : "limit",
+            "subtype": "context",
             "answer" : (
                 "This tool is still being built and can only remember so much of a conversation. "
                 "Want to see it improve? Tap \U0001f44d below! "
@@ -949,6 +950,7 @@ def chat():
         app.logger.info("Response truncated (max_tokens) for question: %s", question)
         return jsonify({
             "type"   : "limit",
+            "subtype": "tokens",
             "answer" : (
                 "This tool is still being built and ran into a limit. "
                 "Want to see it get better? Tap \U0001f44d below! "
