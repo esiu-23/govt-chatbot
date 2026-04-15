@@ -587,7 +587,7 @@
         <li>It cannot access your personal city accounts or records.</li>
         <li>It cannot process payments or applications.</li>
         <li>It cannot answer questions unrelated to Chicago city services, schools, or parks.</li>
-        <li>It may not have the very latest updates — always verify with the official site for urgent matters.</li>
+        <li>It may not have the very latest updates — always verify with the official site for important matters.</li>
       </ul>
     </div>
 
@@ -605,7 +605,7 @@
     </div>
 
     <div id="input-bar">
-      <input id="question" type="text" placeholder="Ask about Chicago city services…" autocomplete="off" />
+      <input id="question" type="text" placeholder="Ask about Chicago city services…" autocomplete="off" autofocus />
       <button id="send" onclick="sendMessage()">Send</button>
     </div>
 
@@ -658,7 +658,10 @@
   const sendBtn   = document.getElementById("send");
   const langSel   = document.getElementById("lang-select");
 
-  const sessionId = crypto.randomUUID();   // unique per page load; sent with every /chat request
+  const sessionId = (crypto.randomUUID
+    ? crypto.randomUUID()
+    : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+        (c ^ (Math.random() * 16 >> c / 4)).toString(16)));   // unique per page load; sent with every /chat request
   let consecutiveClarifyCount = 0;
   let conversationHistory = [];   // [{role:"user"|"assistant", content:"..."}], cleared on tab close
 
@@ -847,6 +850,7 @@
   function setLoading(on) {
     sendBtn.disabled = on;
     inputEl.disabled = on;
+    if (!on) inputEl.focus();
   }
 
   function scrollToBottom() {

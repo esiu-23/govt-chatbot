@@ -53,3 +53,15 @@ CREATE TABLE IF NOT EXISTS source_debug_log (
     filtered_urls  JSONB,
     fallback_used  INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS data_query_log (
+    id               SERIAL PRIMARY KEY,
+    logged_at        TIMESTAMPTZ DEFAULT NOW(),
+    session_id       TEXT,
+    question         TEXT,
+    dataset          TEXT,
+    where_clause     TEXT,
+    select_clause    TEXT,
+    records_returned INTEGER,
+    raw_result       JSONB
+);

@@ -17,12 +17,13 @@ the data was last captured.
 1. [Architecture Overview](#architecture-overview)
 2. [Data Pipeline DAG](#data-pipeline-dag)
 3. [Request / Response Flow](#request--response-flow)
-4. [Data Model](#data-model)
-5. [Project Structure](#project-structure)
-6. [Setup & Running](#setup--running)
-7. [Cost Model](#cost-model)
-8. [Design Decisions](#design-decisions)
-9. [Limitations & Future Work](#limitations--future-work)
+4. [Claude Answer Logic](#claude-answer-logic)
+5. [Data Model](#data-model)
+6. [Project Structure](#project-structure)
+7. [Setup & Running](#setup--running)
+8. [Cost Model](#cost-model)
+9. [Design Decisions](#design-decisions)
+10. [Limitations & Future Work](#limitations--future-work)
 
 ---
 
@@ -43,14 +44,20 @@ flowchart LR
         I -->|pgvector <=> cosine search| E
         E -->|top-5 chunks ≥ 0.35 similarity| H
         H -->|question + context + history| K[Claude Haiku API]
+        K -->|tool_use: query_chicago_data?| H
+        H -->|SODA API query| L[(Chicago Open\nData Portal)]
+        L -->|live JSON rows| H
+        H -->|tool_result| K
         K -->|answer + SOURCES line| H
         H -->|answer + filtered sources + disclaimer| G
         H -->|upsert turn| E
     end
 ```
 
-**Key principle:** The LLM (Claude) never touches the internet at inference time.
-It only sees text retrieved from Supabase via pgvector cosine search.
+**Key principles:**
+- Static knowledge (dept info, services, how-to guides) comes from Supabase via pgvector cosine search.
+- Live quantitative data (crime counts, permit totals, 311 stats) comes from the Chicago Open Data Portal (Socrata SODA API) via Claude tool use — queried at inference time with no caching.
+- Claude never fabricates numbers; if the Socrata query returns no rows or an error, it says so explicitly.
 
 ---
 
@@ -119,6 +126,71 @@ sequenceDiagram
 
 ---
 
+## Claude Answer Logic
+
+Decision flow inside the `/chat` handler for a single request.
+
+```mermaid
+flowchart TD
+    A([POST /chat received]) --> B{question empty?}
+    B -- yes --> B1([400 error])
+    B -- no --> C[Embed question\nVoyage AI voyage-multilingual-2]
+
+    C --> D[pgvector cosine search\ntop-5 chunks]
+    D --> E[Filter chunks\nsimilarity ≥ 0.35]
+
+    E --> F{clarify_count ≥ 1?}
+    F -- yes --> F1[Append 'do not clarify again'\nnote to user message]
+    F -- no --> G
+    F1 --> G[Build messages array\nsystem prompt + RAG context\n+ conversation history]
+
+    G --> H{_parse_intent?\nClaude Haiku structured call}
+    H -- is_data_query=true --> H1[tools = SOCRATA_TOOLS]
+    H -- is_data_query=false --> H2[tools = empty list]
+    H1 --> I
+    H2 --> I
+
+    I[1st Claude Haiku call] --> J{stop_reason?}
+
+    J -- tool_use --> K[Extract dataset / where / select\nfrom tool_use block]
+    K --> L[Query Socrata SODA API]
+    L --> M{Socrata error?}
+    M -- yes --> N[2nd Claude call\ntool_choice=none\nfalls back to RAG context]
+    M -- no --> O[Append assistant turn +\ntool_result to messages]
+    O --> P[2nd Claude call\nwith live data result]
+    N --> Q
+    P --> Q
+
+    J -- max_tokens --> R([Return 'limit' response\nto browser])
+    J -- end_turn --> Q
+
+    Q{text block\nin content?}
+    Q -- no --> Q1([Return graceful error\nlog warning])
+    Q -- yes --> S[Extract raw text]
+
+    S --> T{clarify_count < 2\nAND starts with 'CLARIFY:'?}
+    T -- yes --> U[Return clarification\nupsert turn to DB]
+    T -- no --> V[Parse SOURCES line\nstrip from answer text]
+
+    V --> W[Filter sources to\nURLs Claude cited]
+    W --> X{Any filtered sources?}
+    X -- no, but chunks exist --> X1[Fallback: return all\nretrieved sources]
+    X -- yes --> Y
+    X1 --> Y
+
+    Y[log_source_debug\nupsert_turn\noptionally log_data_query]
+    Y --> Z([Return answer + sources\n+ scrape_date + disclaimer])
+
+    style A fill:#003F87,color:#fff
+    style Z fill:#003F87,color:#fff
+    style B1 fill:#c0392b,color:#fff
+    style R fill:#e67e22,color:#fff
+    style Q1 fill:#c0392b,color:#fff
+    style U fill:#27ae60,color:#fff
+```
+
+---
+
 ## Data Model
 
 All data lives in **Supabase (PostgreSQL)** with the `pgvector` extension.
@@ -167,8 +239,21 @@ erDiagram
         timestamp created_at
     }
 
-    SCRAPE_INFO  ||--o{ CHUNKS         : "produced"
-    SESSIONS     ||--o{ SOURCE_DEBUG_LOG : "has debug rows"
+    DATA_QUERY_LOG {
+        serial  id            PK
+        string  session_id
+        string  question
+        string  dataset           "business_licenses | building_permits | crime | 311_requests"
+        string  where_clause      "SODA $where value"
+        string  select_clause     "SODA $select value"
+        int     records_returned  "len of result array"
+        jsonb   raw_result        "full Socrata JSON response"
+        timestamp logged_at
+    }
+
+    SCRAPE_INFO  ||--o{ CHUNKS            : "produced"
+    SESSIONS     ||--o{ SOURCE_DEBUG_LOG  : "has debug rows"
+    SESSIONS     ||--o{ DATA_QUERY_LOG    : "has data query rows"
 ```
 
 ---
@@ -177,16 +262,17 @@ erDiagram
 
 ```
 govt-chatbot/
-├── scrape_and_index.py   ← one-time data pipeline (run before first use)
-├── api.py                ← Flask backend + RAG logic
-├── gunicorn.conf.py      ← gunicorn worker/timeout config
+├── scrape_and_index.py                     ← one-time data pipeline (run before first use)
+├── api.py                                  ← Flask backend + RAG logic
+├── gunicorn.conf.py                        ← gunicorn worker/timeout config
+├── Boundaries_-_Community_Areas*.csv       ← Chicago community area number→name mapping (from data.cityofchicago.org)
 ├── static/
 │   └── index.html        ← two-column chat UI (vanilla JS): left info panel (1/3) + right chat (2/3)
 ├── vectors/
 │   └── scraped_pages.json ← page cache (avoids re-scraping chicago.gov)
 ├── requirements.txt
-├── .env                  ← ANTHROPIC_API_KEY + VOYAGE_API_KEY + DATABASE_URL (not committed)
-├── .env.example
+├── .env                  ← ANTHROPIC_API_KEY + VOYAGE_API_KEY + DATABASE_URL + SOCRATA_APP_TOKEN (not committed)
+├── .env.example          ← template with all required and optional env vars
 └── project_overview.md   ← this file
 ```
 
@@ -281,6 +367,36 @@ DigitalOcean).
 | Scrape strategy | One-time with date disclaimer + page cache | Government content changes slowly; simpler than a scheduler; transparent to users |
 | Chunk classification | level1 (URL slug), level2 (title), level3 (keywords) | Enables future filtered search by category or content type |
 | Chunk size | 2 000 chars / 300-char overlap | Balances context completeness vs. prompt token cost |
+| Live data | Socrata SODA API via Claude tool use | Counts/trends for 4 datasets fetched at query time; no caching needed since data changes frequently |
+| Tool guard | System prompt + tool description both restrict to 4 datasets | Prevents tool misuse on school/park/transit questions that would hit Socrata with irrelevant queries; schools/parks questions use RAG context from cps.edu / chicagoparkdistrict.com instead |
+| Data query sources | Override filtered_sources with Data Portal URL when data_query_meta is set | RAG (chicago.gov) sources are irrelevant for data answers; show data.cityofchicago.org + dataset URL |
+| Intent parsing | `_parse_intent()` makes a lightweight Claude Haiku call (forced tool use) to extract structured intent before the main RAG call | Replaced regex keyword matching — handles all 7 languages, synonyms, and follow-up replies naturally via conversation history |
+| Missing component clarification | If `is_data_query=true` but `has_time=false` or `has_location=false`, return a targeted clarification before embedding | Ensures Claude always has time + location context to form a good SODA query |
+| Citywide detection | `_CITYWIDE_RE` in `_check_location_in_query` catches "all of Chicago", "citywide", etc. | Returns `status: citywide` so no community area filter is applied |
+| Socrata error logging | HTTPError body now logged and returned in detail field | Enables debugging of 400 Bad Request errors from bad SODA where/select clauses |
+| Community area CSV | Boundaries_-_Community_Areas*.csv loaded at startup | Provides name→number and number→name lookup for all 77 Chicago community areas |
+| Location pre-flight | _check_location_in_query() runs before Voyage embed on data queries | If user mentions an invalid neighborhood, returns clarification with full list before any API call |
+| Community area injection | Resolved area number injected into user_content as a [LOCATION NOTE] | Guarantees Claude uses bare integer (e.g. community_area=28) not a quoted name in the WHERE clause |
+| Server-side translation | _translate_community_areas_in_where() applied to Claude's WHERE clause | Safety net: swaps any remaining quoted area name to its number before hitting Socrata |
+
+---
+
+## Live Data — Chicago Open Data Portal (Socrata)
+
+Four datasets are queryable in real time via Claude tool use:
+
+| Key | Dataset ID | Example questions |
+|---|---|---|
+| `business_licenses` | `r5kz-chrr` | How many businesses opened in Logan Square in 2023? |
+| `building_permits` | `ydr8-5enu` | How many permits were issued in Ward 32 last year? |
+| `crime` | `ijzp-q8t2` | How many robberies in 2024? |
+| `311_requests` | `v6vf-nfxy` | What are the most common 311 requests? |
+
+Claude only calls the `query_chicago_data` tool when the question is explicitly about one of these four topics. For other quantitative questions (schools, parks, transit, health) it falls back to the RAG context.
+
+Optional env var: `SOCRATA_APP_TOKEN` raises the anonymous rate limit from 1 req/s → 10 req/s. Register free at data.cityofchicago.org.
+
+The `data_query_log` table in Supabase records every tool call for observability.
 
 ---
 
