@@ -866,38 +866,39 @@
   };
 
   function applyLang(lang) {
-    const s = UI_STRINGS[lang] || UI_STRINGS.en;
-    // Chat UI
-    inputEl.placeholder = s.placeholder;
-    sendBtn.textContent = s.send;
-    document.getElementById("lang-label").textContent = s.langLabel;
-    const emptyP = chatEl.querySelector(".empty-state p");
-    if (emptyP) emptyP.textContent = s.empty;
-    // RTL support
-    document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
-    // Header
-    const el = id => document.getElementById(id);
-    if (el("header-title"))       el("header-title").textContent       = s.headerTitle;
-    if (el("header-subtitle"))    el("header-subtitle").textContent    = s.headerSubtitle;
-    // Info toggle (mobile)
-    const isOpen = infoPanel.classList.contains("mobile-open");
-    infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
-    // Info panel
-    if (el("about-heading"))      el("about-heading").textContent      = s.aboutHeading;
-    if (el("about-text"))         el("about-text").innerHTML           = s.aboutText;
-    if (el("data-notice-el"))     el("data-notice-el").innerHTML       = s.dataNotice;
-    if (el("how-to-heading"))     el("how-to-heading").textContent     = s.howToHeading;
-    if (el("how-to-ol"))          el("how-to-ol").innerHTML            = (s.howToItems || []).map(item => `<li>${item}</li>`).join("");
-    if (el("examples-heading"))   el("examples-heading").textContent   = s.examplesHeading;
-    (s.suggestions || []).forEach((text, i) => {
-      const btn = el(`suggestion-${i}`);
-      if (btn) btn.textContent = text;
-    });
-    if (el("cant-do-heading"))    el("cant-do-heading").textContent    = s.cantDoHeading;
-    if (el("cant-do-ul"))         el("cant-do-ul").innerHTML           = (s.cantDoItems || []).map(item => `<li>${item}</li>`).join("");
-    // Feedback strip
-    if (el("feedback-helpful-text")) el("feedback-helpful-text").textContent = s.feedbackHelpful;
-    if (el("feedback-cancel"))       el("feedback-cancel").textContent       = s.feedbackCancel;
+    try {
+      const s = UI_STRINGS[lang] || UI_STRINGS.en;
+      const set = (id, prop, val) => { const e = document.getElementById(id); if (e) e[prop] = val; };
+      // Chat UI
+      inputEl.placeholder = s.placeholder;
+      sendBtn.textContent = s.send;
+      set("lang-label", "textContent", s.langLabel);
+      const emptyP = chatEl.querySelector(".empty-state p");
+      if (emptyP) emptyP.textContent = s.empty;
+      // RTL support
+      document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
+      // Header
+      set("header-title",    "textContent", s.headerTitle);
+      set("header-subtitle", "textContent", s.headerSubtitle);
+      // Info toggle (mobile)
+      const isOpen = infoPanel.classList.contains("mobile-open");
+      infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
+      // Info panel
+      set("about-heading",  "textContent", s.aboutHeading);
+      set("about-text",     "innerHTML",   s.aboutText);
+      set("data-notice-el", "innerHTML",   s.dataNotice);
+      set("how-to-heading", "textContent", s.howToHeading);
+      set("how-to-ol",      "innerHTML",   (s.howToItems || []).map(item => `<li>${item}</li>`).join(""));
+      set("examples-heading", "textContent", s.examplesHeading);
+      (s.suggestions || []).forEach((text, i) => set(`suggestion-${i}`, "textContent", text));
+      set("cant-do-heading", "textContent", s.cantDoHeading);
+      set("cant-do-ul",      "innerHTML",   (s.cantDoItems || []).map(item => `<li>${item}</li>`).join(""));
+      // Feedback strip
+      set("feedback-helpful-text", "textContent", s.feedbackHelpful);
+      set("feedback-cancel",       "textContent", s.feedbackCancel);
+    } catch(e) {
+      console.error("applyLang error:", e);
+    }
   }
 
   langSel.addEventListener("change", () => applyLang(langSel.value));
