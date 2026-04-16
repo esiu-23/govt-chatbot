@@ -803,10 +803,16 @@
   const sendBtn   = document.getElementById("send");
   const langSel   = document.getElementById("lang-select");
 
+<<<<<<< HEAD
   const sessionId = (crypto.randomUUID
     ? (crypto.randomUUID ?? (() => ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16))))()
     : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
         (c ^ (Math.random() * 16 >> c / 4)).toString(16)));   // unique per page load; sent with every /chat request
+=======
+  const sessionId = crypto.randomUUID
+    ? crypto.randomUUID()
+    : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));   // unique per page load; sent with every /chat request
+>>>>>>> f67a3f0 (Remove crypto UUID error)
   let consecutiveClarifyCount = 0;
   let conversationHistory = [];   // [{role:"user"|"assistant", content:"..."}], cleared on tab close
   let pendingIntent = null;       // intent from last CLARIFY response; sent back so backend skips re-parsing
