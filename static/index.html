@@ -364,12 +364,25 @@
       color: #742a2a;
     }
 
-    /* ── Status indicator (replaces floating dots) ───────────────────── */
+    /* ── Typing indicator ─────────────────────────────────────────────── */
     .typing .bubble {
-      padding: 12px 16px;
-      font-size: 0.85rem;
-      color: #718096;
-      font-style: italic;
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      padding: 14px 18px;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      background: #a0aec0;
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+    .dot:nth-child(2) { animation-delay: .2s; }
+    .dot:nth-child(3) { animation-delay: .4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40%            { transform: translateY(-6px); }
     }
 
     /* ── Empty-state prompt ───────────────────────────────────────────── */
@@ -803,19 +816,12 @@
   const sendBtn   = document.getElementById("send");
   const langSel   = document.getElementById("lang-select");
 
-<<<<<<< HEAD
   const sessionId = (crypto.randomUUID
-    ? (crypto.randomUUID ?? (() => ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16))))()
+    ? crypto.randomUUID()
     : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
         (c ^ (Math.random() * 16 >> c / 4)).toString(16)));   // unique per page load; sent with every /chat request
-=======
-  const sessionId = crypto.randomUUID
-    ? crypto.randomUUID()
-    : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));   // unique per page load; sent with every /chat request
->>>>>>> f67a3f0 (Remove crypto UUID error)
   let consecutiveClarifyCount = 0;
   let conversationHistory = [];   // [{role:"user"|"assistant", content:"..."}], cleared on tab close
-  let pendingIntent = null;       // intent from last CLARIFY response; sent back so backend skips re-parsing
 
   // ── UI translations ──────────────────────────────────────────────────────
   const UI_STRINGS = {
@@ -976,7 +982,6 @@
   };
 
   function applyLang(lang) {
-<<<<<<< HEAD
     const s = UI_STRINGS[lang] || UI_STRINGS.en;
     // Chat UI
     inputEl.placeholder = s.placeholder;
@@ -986,42 +991,6 @@
     if (emptyP) emptyP.textContent = s.empty;
     // RTL support
     document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
-=======
-    try {
-      const s = UI_STRINGS[lang] || UI_STRINGS.en;
-      const set = (id, prop, val) => { const e = document.getElementById(id); if (e) e[prop] = val; };
-      // Chat UI
-      // Chat UI
-    inputEl.placeholder = s.placeholder;
-      sendBtn.textContent = s.send;
-      set("lang-label", "textContent", s.langLabel);
-      const emptyP = chatEl.querySelector(".empty-state p");
-      if (emptyP) emptyP.textContent = s.empty;
-      // RTL support
-      document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
-      // Header
-      set("header-title",    "textContent", s.headerTitle);
-      set("header-subtitle", "textContent", s.headerSubtitle);
-      // Info toggle (mobile)
-      const isOpen = infoPanel.classList.contains("mobile-open");
-      infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
-      // Info panel
-      set("about-heading",  "textContent", s.aboutHeading);
-      set("about-text",     "innerHTML",   s.aboutText);
-      set("data-notice-el", "innerHTML",   s.dataNotice);
-      set("how-to-heading", "textContent", s.howToHeading);
-      set("how-to-ol",      "innerHTML",   (s.howToItems || []).map(item => `<li>${item}</li>`).join(""));
-      set("examples-heading", "textContent", s.examplesHeading);
-      (s.suggestions || []).forEach((text, i) => set(`suggestion-${i}`, "textContent", text));
-      set("cant-do-heading", "textContent", s.cantDoHeading);
-      set("cant-do-ul",      "innerHTML",   (s.cantDoItems || []).map(item => `<li>${item}</li>`).join(""));
-      // Feedback strip
-      set("feedback-helpful-text", "textContent", s.feedbackHelpful);
-      set("feedback-cancel",       "textContent", s.feedbackCancel);
-    } catch(e) {
-      console.error("applyLang error:", e);
-    }
->>>>>>> 8c760b0 (syncing to origin/data-querying)
     // Header
     document.getElementById("header-title").textContent = s.headerTitle;
     document.getElementById("header-subtitle").textContent = s.headerSubtitle;
@@ -1067,6 +1036,7 @@
     if (!question) return;
     const lang = langSel.value;
 
+    // Remove empty-state placeholder if present
     const empty = chatEl.querySelector(".empty-state");
     if (empty) empty.remove();
 
@@ -1074,12 +1044,7 @@
     inputEl.value = "";
     setLoading(true);
 
-    const statusEl = appendStatus("Analyzing your question…");
-    let finished = false;
-
-    function finish() {
-      if (!finished) { finished = true; setLoading(false); }
-    }
+    const typingEl = appendTyping();
 
     fetch("/chat", {
       method : "POST",
@@ -1090,74 +1055,20 @@
         session_id    : sessionId,
         clarify_count : consecutiveClarifyCount,
         history       : conversationHistory,
-        pending_intent: pendingIntent,
       }),
     })
     .then(r => r.json())
     .then(data => {
-      typingEl.remove();
-      if (data.error) {
-        consecutiveClarifyCount = 0;
-        appendBotMessage("Sorry, something went wrong: " + data.error, [], "", "answer");
-      } else {
-        // Record this turn in history
-        conversationHistory.push({ role: "user",      content: question     });
-        conversationHistory.push({ role: "assistant",  content: data.answer  });
-
-        if (data.type === "clarification") {
-          consecutiveClarifyCount += 1;
-        } else {
-          consecutiveClarifyCount = 0;
-        }
-        if (data.type === "limit") {
-          const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
-          const limitMsg = data.subtype === "context" ? s.contextLimitMessage : s.limitMessage;
-          appendBotMessage(limitMsg, [], "", "limit");
-        } else {
-          appendBotMessage(data.answer, data.sources, data.disclaimer, data.type);
-        }
-      }
+      if (statusEl.parentNode) statusEl.remove();
+      finish();
+      handleStreamEvent(data, statusEl, question, finish);
     })
     .catch(() => {
-      if (statusEl.parentNode) statusEl.remove();
+      typingEl.remove();
       const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
       appendBotMessage(s.serverError, [], "", "answer");
-      finish();
-    });
-  }
-
-  function handleStreamEvent(event, statusEl, question, finish) {
-    if (event.type === "status") {
-      updateStatus(statusEl, event.text);
-      return;
-    }
-
-    if (statusEl.parentNode) statusEl.remove();
-    finish();
-
-    if (event.type === "answer") {
-      conversationHistory.push({ role: "user",      content: question      });
-      conversationHistory.push({ role: "assistant", content: event.answer  });
-      consecutiveClarifyCount = 0;
-      pendingIntent = null;
-      appendBotMessage(event.answer, event.sources, event.disclaimer, "answer");
-    } else if (event.type === "clarification") {
-      conversationHistory.push({ role: "user",      content: question      });
-      conversationHistory.push({ role: "assistant", content: event.answer  });
-      consecutiveClarifyCount += 1;
-      pendingIntent = event.pending_intent || null;
-      appendBotMessage(event.answer, event.sources || [], "", "clarification");
-    } else if (event.type === "limit") {
-      const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
-      const limitMsg = event.subtype === "context" ? s.contextLimitMessage : s.limitMessage;
-      conversationHistory.push({ role: "user",      content: question  });
-      conversationHistory.push({ role: "assistant", content: limitMsg  });
-      consecutiveClarifyCount = 0;
-      pendingIntent = null;
-      appendBotMessage(limitMsg, [], "", "limit");
-    } else if (event.type === "error") {
-      appendBotMessage(event.message, [], "", "answer");
-    }
+    })
+    .finally(() => setLoading(false));
   }
 
   function appendMessage(role, text) {
@@ -1241,11 +1152,9 @@
     scrollToBottom();
   }
 
-  function appendStatus(text) {
+  function appendTyping() {
     const msg    = document.createElement("div");
     msg.className = "msg bot typing";
-<<<<<<< HEAD
-<<<<<<< HEAD
     msg.setAttribute("aria-label", "Assistant is typing");
     msg.innerHTML = `<div class="bubble" aria-hidden="true">
     msg.setAttribute("aria-label", "Assistant is typing");
@@ -1254,25 +1163,9 @@
       <span class="dot"></span>
       <span class="dot"></span>
     </div>`;
-=======
-=======
-    msg.setAttribute("aria-label", "Assistant is typing");
->>>>>>> 8c760b0 (syncing to origin/data-querying)
-    msg.setAttribute("aria-label", "Assistant is thinking");
-    const bubble = document.createElement("div");
-    bubble.className = "bubble" aria-hidden="true";
-    bubble.setAttribute("aria-live", "polite");
-    bubble.textContent = text;
-    msg.appendChild(bubble);
->>>>>>> 2498631 (Better intent parsing for data questions & follow-ups)
     chatEl.appendChild(msg);
     scrollToBottom();
     return msg;
-  }
-
-  function updateStatus(el, text) {
-    const bubble = el.querySelector(".bubble");
-    if (bubble) bubble.textContent = text;
   }
 
   function setLoading(on) {
