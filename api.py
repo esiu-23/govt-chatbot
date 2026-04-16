@@ -989,8 +989,22 @@ def _parse_intent(question: str, history: list = None) -> dict:
         for turn in history[-4:]:
             role    = turn.get("role", "")
             content = turn.get("content", "")
-            if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content})
+            if role not in ("user", "assistant") or not content:
+                continue
+            if isinstance(content, list):
+                if role == "user" and all(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in content if isinstance(b, dict)
+                ):
+                    continue
+                text_parts = [
+                    b.get("text", "") for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
+                content = " ".join(text_parts).strip()
+                if not content:
+                    continue
+            messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": question})
 
     try:
@@ -1473,15 +1487,27 @@ def chat():
         for turn in history:
             role    = turn.get("role", "")
             content = turn.get("content", "")
-            if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": user_content})
-        messages = []
-        for turn in history:
-            role    = turn.get("role", "")
-            content = turn.get("content", "")
-            if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content})
+            if role not in ("user", "assistant") or not content:
+                continue
+            # Strip tool_use/tool_result blocks from history — keep text only.
+            # If the frontend ever stores an intermediate tool_use response or a
+            # tool_result turn, sending it back causes a 400 from the Anthropic API.
+            if isinstance(content, list):
+                # Skip user turns whose entire content is tool_result blocks
+                if role == "user" and all(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in content if isinstance(b, dict)
+                ):
+                    continue
+                # For everything else, keep only text blocks
+                text_parts = [
+                    b.get("text", "") for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
+                content = " ".join(text_parts).strip()
+                if not content:
+                    continue
+            messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_content})
 
         data_query_meta = None
@@ -1688,7 +1714,7 @@ def chat():
         return jsonify(resp_body)
 
     except anthropic.BadRequestError as exc:
-        app.logger.info("Context window exceeded: %s", exc)
+        app.logger.info("Bad Request Error: %s", exc)
         return jsonify({
             "type"   : "limit",
             "subtype": "context",

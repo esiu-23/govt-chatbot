@@ -402,6 +402,7 @@ DigitalOcean).
 =======
 | Anthropic overload retry + fallback | `_claude_create()` wraps all `client.messages.create` calls with exponential-backoff retry (up to 3 attempts, 2s/4s delays) on HTTP 529; if Haiku is still overloaded after all retries, falls back to `claude-sonnet-4-6` for one final attempt | Anthropic occasionally returns 529 OverloadedError under high load; retrying + falling back to Sonnet avoids user-facing errors during Haiku capacity spikes |
 >>>>>>> origin/data-querying
+| History sanitization | When building `messages` from `history` in `_parse_intent` and `/chat`, any turn whose `content` is a list is sanitized: `tool_result`-only user turns are skipped, and all other list content is collapsed to text-only by extracting `type: text` blocks | If the frontend ever stores an intermediate `tool_use` assistant response in its history, resending it causes a 400 from the Anthropic API (`tool_use` without `tool_result` immediately after) |
 
 ---
 
