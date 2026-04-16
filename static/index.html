@@ -804,7 +804,7 @@
   const langSel   = document.getElementById("lang-select");
 
   const sessionId = (crypto.randomUUID
-    ? crypto.randomUUID()
+    ? (crypto.randomUUID ?? (() => ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16))))()
     : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
         (c ^ (Math.random() * 16 >> c / 4)).toString(16)));   // unique per page load; sent with every /chat request
   let consecutiveClarifyCount = 0;
@@ -984,6 +984,7 @@
   };
 
   function applyLang(lang) {
+<<<<<<< HEAD
     const s = UI_STRINGS[lang] || UI_STRINGS.en;
     // Chat UI
     inputEl.placeholder = s.placeholder;
@@ -993,6 +994,42 @@
     if (emptyP) emptyP.textContent = s.empty;
     // RTL support
     document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
+=======
+    try {
+      const s = UI_STRINGS[lang] || UI_STRINGS.en;
+      const set = (id, prop, val) => { const e = document.getElementById(id); if (e) e[prop] = val; };
+      // Chat UI
+      // Chat UI
+    inputEl.placeholder = s.placeholder;
+      sendBtn.textContent = s.send;
+      set("lang-label", "textContent", s.langLabel);
+      const emptyP = chatEl.querySelector(".empty-state p");
+      if (emptyP) emptyP.textContent = s.empty;
+      // RTL support
+      document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
+      // Header
+      set("header-title",    "textContent", s.headerTitle);
+      set("header-subtitle", "textContent", s.headerSubtitle);
+      // Info toggle (mobile)
+      const isOpen = infoPanel.classList.contains("mobile-open");
+      infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
+      // Info panel
+      set("about-heading",  "textContent", s.aboutHeading);
+      set("about-text",     "innerHTML",   s.aboutText);
+      set("data-notice-el", "innerHTML",   s.dataNotice);
+      set("how-to-heading", "textContent", s.howToHeading);
+      set("how-to-ol",      "innerHTML",   (s.howToItems || []).map(item => `<li>${item}</li>`).join(""));
+      set("examples-heading", "textContent", s.examplesHeading);
+      (s.suggestions || []).forEach((text, i) => set(`suggestion-${i}`, "textContent", text));
+      set("cant-do-heading", "textContent", s.cantDoHeading);
+      set("cant-do-ul",      "innerHTML",   (s.cantDoItems || []).map(item => `<li>${item}</li>`).join(""));
+      // Feedback strip
+      set("feedback-helpful-text", "textContent", s.feedbackHelpful);
+      set("feedback-cancel",       "textContent", s.feedbackCancel);
+    } catch(e) {
+      console.error("applyLang error:", e);
+    }
+>>>>>>> 8c760b0 (syncing to origin/data-querying)
     // Header
     document.getElementById("header-title").textContent = s.headerTitle;
     document.getElementById("header-subtitle").textContent = s.headerSubtitle;
@@ -1216,6 +1253,7 @@
     const msg    = document.createElement("div");
     msg.className = "msg bot typing";
 <<<<<<< HEAD
+<<<<<<< HEAD
     msg.setAttribute("aria-label", "Assistant is typing");
     msg.innerHTML = `<div class="bubble" aria-hidden="true">
     msg.setAttribute("aria-label", "Assistant is typing");
@@ -1225,9 +1263,12 @@
       <span class="dot"></span>
     </div>`;
 =======
+=======
+    msg.setAttribute("aria-label", "Assistant is typing");
+>>>>>>> 8c760b0 (syncing to origin/data-querying)
     msg.setAttribute("aria-label", "Assistant is thinking");
     const bubble = document.createElement("div");
-    bubble.className = "bubble";
+    bubble.className = "bubble" aria-hidden="true";
     bubble.setAttribute("aria-live", "polite");
     bubble.textContent = text;
     msg.appendChild(bubble);
