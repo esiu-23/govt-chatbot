@@ -313,25 +313,12 @@
       color: #742a2a;
     }
 
-    /* ── Typing indicator ─────────────────────────────────────────────── */
+    /* ── Status indicator (replaces floating dots) ───────────────────── */
     .typing .bubble {
-      display: flex;
-      gap: 5px;
-      align-items: center;
-      padding: 14px 18px;
-    }
-    .dot {
-      width: 7px; height: 7px;
-      background: #a0aec0;
-      border-radius: 50%;
-      animation: bounce 1.2s infinite;
-    }
-    .dot:nth-child(2) { animation-delay: .2s; }
-    .dot:nth-child(3) { animation-delay: .4s; }
-
-    @keyframes bounce {
-      0%, 80%, 100% { transform: translateY(0); }
-      40%            { transform: translateY(-6px); }
+      padding: 12px 16px;
+      font-size: 0.85rem;
+      color: #718096;
+      font-style: italic;
     }
 
     /* ── Empty-state prompt ───────────────────────────────────────────── */
@@ -723,6 +710,7 @@
         (c ^ (Math.random() * 16 >> c / 4)).toString(16)));   // unique per page load; sent with every /chat request
   let consecutiveClarifyCount = 0;
   let conversationHistory = [];   // [{role:"user"|"assistant", content:"..."}], cleared on tab close
+  let pendingIntent = null;       // intent from last CLARIFY response; sent back so backend skips re-parsing
 
   // ── UI translations ──────────────────────────────────────────────────────
   const UI_STRINGS = {
@@ -939,7 +927,6 @@
     if (!question) return;
     const lang = langSel.value;
 
-    // Remove empty-state placeholder if present
     const empty = chatEl.querySelector(".empty-state");
     if (empty) empty.remove();
 
@@ -947,7 +934,12 @@
     inputEl.value = "";
     setLoading(true);
 
-    const typingEl = appendTyping();
+    const statusEl = appendStatus("Analyzing your question…");
+    let finished = false;
+
+    function finish() {
+      if (!finished) { finished = true; setLoading(false); }
+    }
 
     fetch("/chat", {
       method : "POST",
@@ -958,39 +950,55 @@
         session_id    : sessionId,
         clarify_count : consecutiveClarifyCount,
         history       : conversationHistory,
+        pending_intent: pendingIntent,
       }),
     })
     .then(r => r.json())
     .then(data => {
-      typingEl.remove();
-      if (data.error) {
-        consecutiveClarifyCount = 0;
-        appendBotMessage("Sorry, something went wrong: " + data.error, [], "", "answer");
-      } else {
-        // Record this turn in history
-        conversationHistory.push({ role: "user",      content: question     });
-        conversationHistory.push({ role: "assistant",  content: data.answer  });
-
-        if (data.type === "clarification") {
-          consecutiveClarifyCount += 1;
-        } else {
-          consecutiveClarifyCount = 0;
-        }
-        if (data.type === "limit") {
-          const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
-          const limitMsg = data.subtype === "context" ? s.contextLimitMessage : s.limitMessage;
-          appendBotMessage(limitMsg, [], "", "limit");
-        } else {
-          appendBotMessage(data.answer, data.sources, data.disclaimer, data.type);
-        }
-      }
+      if (statusEl.parentNode) statusEl.remove();
+      finish();
+      handleStreamEvent(data, statusEl, question, finish);
     })
     .catch(() => {
-      typingEl.remove();
+      if (statusEl.parentNode) statusEl.remove();
       const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
       appendBotMessage(s.serverError, [], "", "answer");
-    })
-    .finally(() => setLoading(false));
+      finish();
+    });
+  }
+
+  function handleStreamEvent(event, statusEl, question, finish) {
+    if (event.type === "status") {
+      updateStatus(statusEl, event.text);
+      return;
+    }
+
+    if (statusEl.parentNode) statusEl.remove();
+    finish();
+
+    if (event.type === "answer") {
+      conversationHistory.push({ role: "user",      content: question      });
+      conversationHistory.push({ role: "assistant", content: event.answer  });
+      consecutiveClarifyCount = 0;
+      pendingIntent = null;
+      appendBotMessage(event.answer, event.sources, event.disclaimer, "answer");
+    } else if (event.type === "clarification") {
+      conversationHistory.push({ role: "user",      content: question      });
+      conversationHistory.push({ role: "assistant", content: event.answer  });
+      consecutiveClarifyCount += 1;
+      pendingIntent = event.pending_intent || null;
+      appendBotMessage(event.answer, event.sources || [], "", "clarification");
+    } else if (event.type === "limit") {
+      const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
+      const limitMsg = event.subtype === "context" ? s.contextLimitMessage : s.limitMessage;
+      conversationHistory.push({ role: "user",      content: question  });
+      conversationHistory.push({ role: "assistant", content: limitMsg  });
+      consecutiveClarifyCount = 0;
+      pendingIntent = null;
+      appendBotMessage(limitMsg, [], "", "limit");
+    } else if (event.type === "error") {
+      appendBotMessage(event.message, [], "", "answer");
+    }
   }
 
   function appendMessage(role, text) {
@@ -1063,18 +1071,23 @@
     scrollToBottom();
   }
 
-  function appendTyping() {
+  function appendStatus(text) {
     const msg    = document.createElement("div");
     msg.className = "msg bot typing";
-    msg.setAttribute("aria-label", "Assistant is typing");
-    msg.innerHTML = `<div class="bubble" aria-hidden="true">
-      <span class="dot"></span>
-      <span class="dot"></span>
-      <span class="dot"></span>
-    </div>`;
+    msg.setAttribute("aria-label", "Assistant is thinking");
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.setAttribute("aria-live", "polite");
+    bubble.textContent = text;
+    msg.appendChild(bubble);
     chatEl.appendChild(msg);
     scrollToBottom();
     return msg;
+  }
+
+  function updateStatus(el, text) {
+    const bubble = el.querySelector(".bubble");
+    if (bubble) bubble.textContent = text;
   }
 
   function setLoading(on) {
