@@ -28,20 +28,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _ipv4_dsn(dsn: str) -> str:
-    """Inject hostaddr= (IPv4) into the DSN so psycopg2 never tries IPv6."""
-    import urllib.parse as _up
-    parsed = _up.urlparse(dsn)
-    hostname = parsed.hostname
-    if not hostname:
-        return dsn
-    try:
-        infos = socket.getaddrinfo(hostname, None, socket.AF_INET)
-        ipv4 = infos[0][4][0]
-    except Exception:
-        return dsn
-    separator = "&" if "?" in dsn else "?"
-    return f"{dsn}{separator}hostaddr={ipv4}"
+def _ipv4_connect_params(dsn: str) -> dict:
+    """Parse DSN and inject hostaddr (IPv4) so psycopg2 never tries IPv6."""
+    params = psycopg2.extensions.parse_dsn(dsn)
+    hostname = params.get("host", "")
+    if hostname:
+        try:
+            infos = socket.getaddrinfo(hostname, None, socket.AF_INET)
+            params["hostaddr"] = infos[0][4][0]
+            print(f"Resolved {hostname} → {params['hostaddr']} (IPv4)", flush=True)
+        except Exception as e:
+            print(f"IPv4 resolution failed for {hostname}: {e}", flush=True)
+    return params
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +443,7 @@ def main():
 
     # 5. Write to Supabase
     print("Step 5/5 — Writing to Supabase...")
-    conn = psycopg2.connect(_ipv4_dsn(os.environ["DATABASE_URL"]))
+    conn = psycopg2.connect(**_ipv4_connect_params(os.environ["DATABASE_URL"]))
     register_vector(conn)
     cur = conn.cursor()
 
