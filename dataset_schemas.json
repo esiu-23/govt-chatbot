@@ -1,0 +1,970 @@
+{
+  "business_licenses": [
+    {
+      "fieldName": "id",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "license_id",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "account_number",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "site_number",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "legal_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "doing_business_as_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "address",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "zip_code",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "ward",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "precinct",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "ward_precinct",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "police_district",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "community_area",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "community_area_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "neighborhood",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "license_code",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "license_description",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "business_activity_id",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "business_activity",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "license_number",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "application_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "application_created_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "application_requirements_complete",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "payment_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "conditional_approval",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "license_start_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "expiration_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "license_approved_for_issuance",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "date_issued",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "license_status",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "license_status_change_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "ssa",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "latitude",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "longitude",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "location",
+      "dataTypeName": "location"
+    },
+    {
+      "fieldName": ":@computed_region_vrxf_vc4k",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_awaf_s7ux",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_6mkv_f3dw",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_bdys_3d7i",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_43wa_7qmu",
+      "dataTypeName": "number"
+    }
+  ],
+  "building_permits": [
+    {
+      "fieldName": "id",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "permit_",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "permit_status",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "permit_milestone",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "permit_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "review_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "application_start_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "issue_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "processing_time",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "street_number",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "street_direction",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "street_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "work_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "work_description",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "permit_condition",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "building_fee_paid",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "zoning_fee_paid",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "other_fee_paid",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "subtotal_paid",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "building_fee_unpaid",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "zoning_fee_unpaid",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "other_fee_unpaid",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "subtotal_unpaid",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "building_fee_waived",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "building_fee_subtotal",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "zoning_fee_subtotal",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "other_fee_subtotal",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "zoning_fee_waived",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "other_fee_waived",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "subtotal_waived",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "total_fee",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "contact_1_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_1_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_1_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_1_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_1_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_2_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_2_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_2_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_2_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_2_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_3_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_3_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_3_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_3_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_3_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_4_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_4_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_4_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_4_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_4_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_5_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_5_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_5_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_5_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_5_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_6_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_6_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_6_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_6_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_6_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_7_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_7_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_7_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_7_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_7_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_8_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_8_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_8_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_8_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_8_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_9_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_9_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_9_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_9_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_9_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_10_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_10_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_10_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_10_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_10_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_11_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_11_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_11_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_11_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_11_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_12_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_12_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_12_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_12_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_12_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_13_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_13_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_13_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_13_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_13_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_14_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_14_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_14_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_14_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_14_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_15_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_15_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_15_city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_15_state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "contact_15_zipcode",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "reported_cost",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "pin_list",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "community_area",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "census_tract",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "ward",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "xcoordinate",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "ycoordinate",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "latitude",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "longitude",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "location",
+      "dataTypeName": "point"
+    },
+    {
+      "fieldName": ":@computed_region_rpca_8um6",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_vrxf_vc4k",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_6mkv_f3dw",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_bdys_3d7i",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_43wa_7qmu",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_awaf_s7ux",
+      "dataTypeName": "number"
+    }
+  ],
+  "crime": [
+    {
+      "fieldName": "id",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "case_number",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "block",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "iucr",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "primary_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "description",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "location_description",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "arrest",
+      "dataTypeName": "checkbox"
+    },
+    {
+      "fieldName": "domestic",
+      "dataTypeName": "checkbox"
+    },
+    {
+      "fieldName": "beat",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "district",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "ward",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "community_area",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "fbi_code",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "x_coordinate",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "y_coordinate",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "year",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "updated_on",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "latitude",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "longitude",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "location",
+      "dataTypeName": "location"
+    },
+    {
+      "fieldName": ":@computed_region_awaf_s7ux",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_6mkv_f3dw",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_vrxf_vc4k",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_bdys_3d7i",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_43wa_7qmu",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_rpca_8um6",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_d9mm_jgwp",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_d3ds_rm58",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_8hcu_yrd4",
+      "dataTypeName": "number"
+    }
+  ],
+  "311_requests": [
+    {
+      "fieldName": "sr_number",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "sr_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "sr_short_code",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "created_department",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "owner_department",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "status",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "origin",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "created_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "last_modified_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "closed_date",
+      "dataTypeName": "calendar_date"
+    },
+    {
+      "fieldName": "street_address",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "city",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "state",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "zip_code",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "street_number",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "street_direction",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "street_name",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "street_type",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "duplicate",
+      "dataTypeName": "checkbox"
+    },
+    {
+      "fieldName": "legacy_record",
+      "dataTypeName": "checkbox"
+    },
+    {
+      "fieldName": "legacy_sr_number",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "parent_sr_number",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "community_area",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "ward",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "electrical_district",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "electricity_grid",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "police_sector",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "police_district",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "police_beat",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "precinct",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "sanitation_division_days",
+      "dataTypeName": "text"
+    },
+    {
+      "fieldName": "created_hour",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "created_day_of_week",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "created_month",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "x_coordinate",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "y_coordinate",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "latitude",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "longitude",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": "location",
+      "dataTypeName": "location"
+    },
+    {
+      "fieldName": ":@computed_region_rpca_8um6",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_vrxf_vc4k",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_6mkv_f3dw",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_bdys_3d7i",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_43wa_7qmu",
+      "dataTypeName": "number"
+    },
+    {
+      "fieldName": ":@computed_region_du4m_ji7t",
+      "dataTypeName": "number"
+    }
+  ]
+}
