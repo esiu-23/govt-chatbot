@@ -149,7 +149,10 @@ def _load_dataset_schemas() -> None:
                 print("Fetching dataset schemas from Socrata...", flush=True)
                 url = f"https://data.cityofchicago.org/api/views/{dataset_id}.json"
                 app.logger.info('[dataset] schema fetch')
-                with urllib.request.urlopen(url, timeout=15, context=_SSL_CTX) as resp:
+                schema_req = urllib.request.Request(url)
+                if SOCRATA_APP_TOKEN:
+                    schema_req.add_header("X-App-Token", SOCRATA_APP_TOKEN)
+                with urllib.request.urlopen(schema_req, timeout=15, context=_SSL_CTX) as resp:
                     data = json.loads(resp.read().decode())
                 schemas[key] = [
                     {"fieldName": col["fieldName"], "dataTypeName": col["dataTypeName"]}
@@ -318,20 +321,24 @@ def query_socrata(dataset: str, where: str = None, select: str = "count(*) AS to
     if SOCRATA_APP_TOKEN:
         params["$$app_token"] = SOCRATA_APP_TOKEN
     url = f"{SOCRATA_BASE}/{dataset_id}.json?" + urllib.parse.urlencode(params)
-    try:
-        with urllib.request.urlopen(url, timeout=10, context=_SSL_CTX) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        body = ""
+    for attempt in range(2):
         try:
-            body = e.read().decode("utf-8", errors="replace")[:500]
-        except Exception:
-            pass
-        app.logger.error("[socrata] HTTP %s for url=%s body=%s", e.code, url, body)
-        return {"error": f"HTTP Error {e.code}: {e.reason}", "detail": body}
-    except Exception as e:
-        app.logger.error("[socrata] error url=%s exc=%s", url, e)
-        return {"error": str(e)}
+            with urllib.request.urlopen(url, timeout=30, context=_SSL_CTX) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                pass
+            app.logger.error("[socrata] HTTP %s for url=%s body=%s", e.code, url, body)
+            return {"error": f"HTTP Error {e.code}: {e.reason}", "detail": body}
+        except Exception as e:
+            if attempt == 0 and "timed out" in str(e).lower():
+                app.logger.warning("[socrata] timeout on attempt 1, retrying: url=%s", url)
+                continue
+            app.logger.error("[socrata] error url=%s exc=%s", url, e)
+            return {"error": str(e)}
 
 def _build_socrata_tools() -> list:
     """Build the SOCRATA_TOOLS list, injecting the full community area mapping."""
@@ -494,15 +501,18 @@ def _load_dataset_schemas() -> None:
         return
     schemas: dict[str, list] = {}
     for key, dataset_id in DATASETS.items():
-        if key in schemas.keys(): 
+        if key in schemas.keys():
             print("Loading dataset from cache")
             app.logger.info('[dataset] loaded from cache')
-        else: 
+        else:
             try:
                 print("Fetching dataset schemas from Socrata...", flush=True)
                 url = f"https://data.cityofchicago.org/api/views/{dataset_id}.json"
                 app.logger.info('[dataset] schema fetch')
-                with urllib.request.urlopen(url, timeout=15, context=_SSL_CTX) as resp:
+                schema_req = urllib.request.Request(url)
+                if SOCRATA_APP_TOKEN:
+                    schema_req.add_header("X-App-Token", SOCRATA_APP_TOKEN)
+                with urllib.request.urlopen(schema_req, timeout=15, context=_SSL_CTX) as resp:
                     data = json.loads(resp.read().decode())
                 schemas[key] = [
                     {"fieldName": col["fieldName"], "dataTypeName": col["dataTypeName"]}
@@ -671,20 +681,24 @@ def query_socrata(dataset: str, where: str = None, select: str = "count(*) AS to
     if SOCRATA_APP_TOKEN:
         params["$$app_token"] = SOCRATA_APP_TOKEN
     url = f"{SOCRATA_BASE}/{dataset_id}.json?" + urllib.parse.urlencode(params)
-    try:
-        with urllib.request.urlopen(url, timeout=10, context=_SSL_CTX) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        body = ""
+    for attempt in range(2):
         try:
-            body = e.read().decode("utf-8", errors="replace")[:500]
-        except Exception:
-            pass
-        app.logger.error("[socrata] HTTP %s for url=%s body=%s", e.code, url, body)
-        return {"error": f"HTTP Error {e.code}: {e.reason}", "detail": body}
-    except Exception as e:
-        app.logger.error("[socrata] error url=%s exc=%s", url, e)
-        return {"error": str(e)}
+            with urllib.request.urlopen(url, timeout=60, context=_SSL_CTX) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                pass
+            app.logger.error("[socrata] HTTP %s for url=%s body=%s", e.code, url, body)
+            return {"error": f"HTTP Error {e.code}: {e.reason}", "detail": body}
+        except Exception as e:
+            if attempt == 0 and "timed out" in str(e).lower():
+                app.logger.warning("[socrata] timeout on attempt 1, retrying: url=%s", url)
+                continue
+            app.logger.error("[socrata] error url=%s exc=%s", url, e)
+            return {"error": str(e)}
 
 def _build_socrata_tools() -> list:
     """Build the SOCRATA_TOOLS list, injecting the full community area mapping."""
@@ -804,20 +818,13 @@ def load_resources() -> None:
     _load_community_areas()
     _load_dataset_schemas()
     SOCRATA_TOOLS = _build_socrata_tools()
-    global _voyage, _pool, SCRAPE_DATE, TOTAL_CHUNKS, SOCRATA_TOOLS
-
-    _load_community_areas()
-    _load_dataset_schemas()
-    SOCRATA_TOOLS = _build_socrata_tools()
 
     print("Initialising Voyage AI client...", flush=True)
     _voyage = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"], timeout=30)
 
     print("Connecting to Supabase...", flush=True)
     _conn_params = _ipv4_connect_params(DATABASE_URL)
-    _conn_params = _ipv4_connect_params(DATABASE_URL)
     _pool = psycopg2.pool.ThreadedConnectionPool(
-        minconn=2, maxconn=10, connect_timeout=10, **_conn_params
         minconn=2, maxconn=10, connect_timeout=10, **_conn_params
     )
 
@@ -1019,95 +1026,10 @@ def _sse(data: dict) -> str:
 
 
 _PROMPT_PREAMBLE = (
-
-def _claude_create(*args, _retries: int = 3, _backoff: float = 2.0, **kwargs):
-    """Wrapper around client.messages.create with exponential-backoff retry for 529 overload errors.
-
-    If the primary model (Haiku) exhausts all retries due to overload, falls back to CLAUDE_FALLBACK
-    (Sonnet) for one final attempt before raising.
-    """
-    primary = kwargs.get("model", CLAUDE_PRIMARY)
-    for attempt in range(_retries):
-        try:
-            return client.messages.create(*args, **kwargs)
-        except anthropic.APIStatusError as exc:
-            if exc.status_code == 529 and attempt < _retries - 1:
-                wait = _backoff * (2 ** attempt)
-                app.logger.warning(
-                    "[claude] Overloaded (529) — retrying in %.1fs (attempt %d/%d)",
-                    wait, attempt + 1, _retries,
-                )
-                time.sleep(wait)
-            elif exc.status_code == 529 and primary != CLAUDE_FALLBACK:
-                app.logger.warning(
-                    "[claude] %s still overloaded after %d retries — falling back to %s",
-                    primary, _retries, CLAUDE_FALLBACK,
-                )
-                fallback_kwargs = {**kwargs, "model": CLAUDE_FALLBACK}
-                return client.messages.create(*args, **fallback_kwargs)
-            else:
-                raise
-
-
-def _parse_intent(question: str, history: list = None) -> dict:
-    """Use Claude Haiku to extract structured query intent.
-
-    Passes recent conversation history so follow-up replies ('yes', 'the first one', etc.)
-    are understood in context — no word-count heuristics needed.
-
-    Returns a dict with keys:
-      is_data_query, dataset, has_time, time_phrase,
-      has_location, location_phrase, is_citywide
-    """
-    messages = []
-    if history:
-        for turn in history[-4:]:
-            role    = turn.get("role", "")
-            content = turn.get("content", "")
-            if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": question})
-
-    try:
-        resp = _claude_create(
-            model      = CLAUDE_PRIMARY,
-            max_tokens = 256,
-            system     = (
-                "You extract structured intent from user questions about Chicago city data. "
-                "The four available datasets are: crime incidents, building permits, "
-                "business licenses, and 311 service requests. "
-                "Always call the parse_data_query_intent tool."
-            ),
-            tools       = [INTENT_TOOL],
-            tool_choice = {"type": "tool", "name": "parse_data_query_intent"},
-            messages    = messages,
-        )
-        for block in resp.content:
-            if block.type == "tool_use":
-                return block.input
-    except anthropic.APIStatusError as exc:
-        if exc.status_code == 529:
-            raise   # let the caller fail fast — no point embedding or querying DB
-        app.logger.warning("[intent] parse failed, defaulting to non-data: %s", exc)
-    except Exception as exc:
-        app.logger.warning("[intent] parse failed, defaulting to non-data: %s", exc)
-
-    return {"is_data_query": False, "has_time": False, "has_location": False, "is_citywide": False}
-
-
-def _sse(data: dict) -> str:
-    """Format a dict as a Server-Sent Events data line."""
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-_PROMPT_PREAMBLE = (
     "You are a concise assistant for City of Chicago government services.\n\n"
     "HARD RULE: Every response must be 50 words or fewer (not counting the SOURCES line). No exceptions.\n\n"
 )
-)
 
-SYSTEM_PROMPT_DOMAIN = (
-    _PROMPT_PREAMBLE +
 SYSTEM_PROMPT_DOMAIN = (
     _PROMPT_PREAMBLE +
     "Chicago services are organized in three levels:\n"
@@ -1117,7 +1039,6 @@ SYSTEM_PROMPT_DOMAIN = (
     "Culture, Arts & Recreation | City Government | City Services\n"
     "  Level 2 — individual department within a Level 1 category\n"
     "  Level 3 — specific service, program, contact info, or how-to steps\n\n"
-    "If the user asks who as a keyword, they're asking about an entity or person, not what language you're speaking."
     "If the user asks who as a keyword, they're asking about an entity or person, not what language you're speaking."
 
     "CLARIFYING QUESTIONS: Only ask if the topic is still ambiguous AFTER "
@@ -1191,51 +1112,10 @@ SYSTEM_PROMPT_DATA = (
     "The valid community areas are listed in the query_chicago_data tool description. "
     "If a user asks about a neighborhood that is NOT in that list (e.g. a street, landmark, "
     "or informal name like 'River North' or 'Mag Mile'), explicitly tell them it is not a "
-    "Chicago community area and suggest the closest valid community area if obvious.\n\n"
-
-    "OUT-OF-SCOPE QUANTITATIVE QUESTIONS: If the user asks a  about a topic that is NOT one of the four "
-    "Chicago Open Data Portal datasets (business licenses, building permits, crime, 311 requests),"
-    "answer from the RAG context if possible, then add on a new line: "
-    "'Note: This tool is still in development and is only scoped for a limited set of city data. "
-    "If you find it helpful and want to see it improve, hit the thumbs up button below!'"
-    
-    "HARD RULE: when a user asks a question, first verify that the data is available. "
-    "Check that the topic is one of the four Chicago Open Data Portal datasets (business licenses, building permits, crime, 311 requests),"
-    "Check that the topic is available as one of the columns in the relevant dataset schemas." 
-    "that that information is not currently available. If they would like to see the data available, "
-    "submit feedback below by hitting the thumbs up or down button."
-)
-
-SYSTEM_PROMPT_DATA = (
-    _PROMPT_PREAMBLE +
-    "DATA QUERIES: ONLY use the query_chicago_data tool when the question is EXPLICITLY about "
-    "one of these four topics available on the Chicago Open Data Portal: business licenses, "
-    "building permits, crime incidents, or 311 service requests. "
-    "Do NOT use the tool for schools, enrollment, parks, libraries, transit, "
-    "health, or any other topic — even if the question contains words like 'how many' or 'count'. "
-    "For questions about Chicago Public Schools or Chicago Park District, use the RAG context from cps.edu or chicagoparkdistrict.com instead. "
-    "When the tool IS appropriate, fetch live data and ONLY report the exact figures returned — "
-    "do not estimate, extrapolate, or invent numbers. "
-    "State the dataset name (e.g. 'The Chicago Open Data Portal crime dataset shows ...'). "
-    "If the query returned no results or an error, say so explicitly. "
-    
-    "For data answers, skip the SOURCES line and instead cite 'data.cityofchicago.org'.\n\n"
-    
-    "CLARIFICATION question: First identify the relevant datasets based on the question given."
-    "Then identify what pieces of information are missing: ie, location, time. Ask follow-up questions about missing fields."
-    "If you provide multiple options & the user says responds both or all, use that to indicate you have to query all options provided."
-    "Use user response to fill in information about missing fields. Once all fields are filled, provide response."
-    
-    "CONVERSATION HISTORY: Always maintain the entire chat conversation in context."
-    "Use the entire context to decide whether to clarify, and how to respond to the user."
-    "When the user responds to a CLARIFY question, append their answer to their previous question"
-    "and use that entire context to answer their question. \n\n"
-    
-    "COMMUNITY AREAS: Chicago's datasets use numeric community area codes. "
-    "The valid community areas are listed in the query_chicago_data tool description. "
-    "If a user asks about a neighborhood that is NOT in that list (e.g. a street, landmark, "
-    "or informal name like 'River North' or 'Mag Mile'), explicitly tell them it is not a "
-    "Chicago community area and suggest the closest valid community area if obvious.\n\n"
+    "Chicago community area and ask them to specify which community area they mean — "
+    "do NOT suggest or guess one. "
+    "If a user provides a street address, do NOT infer or guess which community area it falls in. "
+    "Ask them to specify their community area instead.\n\n"
 
     "OUT-OF-SCOPE QUANTITATIVE QUESTIONS: If the user asks a  about a topic that is NOT one of the four "
     "Chicago Open Data Portal datasets (business licenses, building permits, crime, 311 requests),"
@@ -1251,52 +1131,7 @@ SYSTEM_PROMPT_DATA = (
     "Only list URLs that actually appear verbatim in the context provided."
 )
 
-SYSTEM_PROMPT_DATA = (
-    _PROMPT_PREAMBLE +
-    "DATA QUERIES: ONLY use the query_chicago_data tool when the question is EXPLICITLY about "
-    "one of these four topics available on the Chicago Open Data Portal: business licenses, "
-    "building permits, crime incidents, or 311 service requests. "
-    "Do NOT use the tool for schools, enrollment, parks, libraries, transit, "
-    "health, or any other topic — even if the question contains words like 'how many' or 'count'. "
-    "For questions about Chicago Public Schools or Chicago Park District, use the RAG context from cps.edu or chicagoparkdistrict.com instead. "
-    "When the tool IS appropriate, fetch live data and ONLY report the exact figures returned — "
-    "do not estimate, extrapolate, or invent numbers. "
-    "State the dataset name (e.g. 'The Chicago Open Data Portal crime dataset shows ...'). "
-    "If the query returned no results or an error, say so explicitly. "
-    
-    "For data answers, skip the SOURCES line and instead cite 'data.cityofchicago.org'.\n\n"
-    
-    "CLARIFICATION question: First identify the relevant datasets based on the question given."
-    "Then identify what pieces of information are missing: ie, location, time. Ask follow-up questions about missing fields."
-    "If you provide multiple options & the user says responds both or all, use that to indicate you have to query all options provided."
-    "Use user response to fill in information about missing fields. Once all fields are filled, provide response."
-    
-    "CONVERSATION HISTORY: Always maintain the entire chat conversation in context."
-    "Use the entire context to decide whether to clarify, and how to respond to the user."
-    "When the user responds to a CLARIFY question, append their answer to their previous question"
-    "and use that entire context to answer their question. \n\n"
-    
-    "COMMUNITY AREAS: Chicago's datasets use numeric community area codes. "
-    "The valid community areas are listed in the query_chicago_data tool description. "
-    "If a user asks about a neighborhood that is NOT in that list (e.g. a street, landmark, "
-    "or informal name like 'River North' or 'Mag Mile'), explicitly tell them it is not a "
-    "Chicago community area and suggest the closest valid community area if obvious.\n\n"
-
-    "OUT-OF-SCOPE QUANTITATIVE QUESTIONS: If the user asks a  about a topic that is NOT one of the four "
-    "Chicago Open Data Portal datasets (business licenses, building permits, crime, 311 requests),"
-    "answer from the RAG context if possible, then add on a new line: "
-    "'Note: This tool is still in development and is only scoped for a limited set of city data. "
-    "If you find it helpful and want to see it improve, hit the thumbs up button below!'"
-    
-    "HARD RULE: when a user asks a question, first verify that the data is available. "
-    "Check that the topic is one of the four Chicago Open Data Portal datasets (business licenses, building permits, crime, 311 requests),"
-    "Check that the topic is available as one of the columns in the relevant dataset schemas." 
-    "that that information is not currently available. If they would like to see the data available, "
-    "submit feedback below by hitting the thumbs up or down button."
-)
-
 DISCLAIMER_TEMPLATE = (
-    "Information sourced from city websites as of {date}. "
     "Information sourced from city websites as of {date}. "
     "Content may have changed — visit the sources directly to confirm."
 )
@@ -1304,28 +1139,6 @@ DISCLAIMER_TEMPLATE = (
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-_raw_log = logging.getLogger("raw_wsgi")
-
-
-class RawLoggingMiddleware:
-    """Fires before Flask routing — confirms the request reached Python at all."""
-    def __init__(self, wsgi_app):
-        self._app = wsgi_app
-
-    def __call__(self, environ, start_response):
-        import threading
-        _raw_log.info(
-            "[raw] %s %s  content_type=%r  content_length=%s  thread=%s",
-            environ.get("REQUEST_METHOD"),
-            environ.get("PATH_INFO"),
-            environ.get("CONTENT_TYPE"),
-            environ.get("CONTENT_LENGTH"),
-            threading.current_thread().name,
-        )
-        return self._app(environ, start_response)
-
-
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 _raw_log = logging.getLogger("raw_wsgi")
 
@@ -1536,91 +1349,6 @@ def chat():
         app.logger.info("[chat] +%s embedding question", elapsed())
         result = _voyage.embed([question], model=MODEL_NAME, input_type="query")
         q_vec = np.array(result.embeddings[0], dtype=np.float32)
-    t0 = time.monotonic()
-    def elapsed():
-        return f"{time.monotonic() - t0:.2f}s"
-
-    try:
-<<<<<<< HEAD
-        # 0. Intent parsing — reuse stored intent if user is answering a CLARIFY
-        if pending_intent and clarify_count > 0:
-            intent = pending_intent
-            latest_intent = _parse_intent(question, history)
-            # Finds pairs that exist in one but not both (Symmetric Difference) and update pending_intent with the latest info
-            diff = intent.items() ^ latest_intent.items()
-            updated_intent = intent
-            for key, value in diff.items():
-                updated_intent['key'] = latest_intent['value']
-
-            app.logger.info("[chat] +%s updated pending_intent: %s", elapsed(), updated_intent)
-        else:
-            app.logger.info("[chat] +%s parsing intent", elapsed())
-            try:
-                intent = _parse_intent(question, history)
-            except anthropic.APIStatusError as exc:
-                if exc.status_code == 529:
-                    app.logger.warning("[chat] Anthropic overloaded during intent parse: %s", exc)
-                    return jsonify({"type": "error", "message": "This service is briefly overloaded. Please try again in a moment."})
-                raise
-            app.logger.info("[chat] intent: %s", intent)
-
-        
-        use_data_tool       = bool(intent.get("is_data_query"))
-        app.logger.info(f'[use_data_tool] {use_data_tool}')
-        active_system_prompt = SYSTEM_PROMPT_DATA if use_data_tool else SYSTEM_PROMPT_DOMAIN
-        resolved_area_num   = None
-
-        # Pre-flight checks for data queries
-        if use_data_tool:
-            dataset         = intent.get("dataset")
-            has_time        = intent.get("has_time", False)
-            has_location    = intent.get("has_location", False)
-            is_citywide     = intent.get("is_citywide", False)
-            location_phrase = intent.get("location_phrase", "")
-            loc_supported   = DATASET_HAS_LOCATION.get(dataset, True)
-
-            if not has_time:
-                msg = "What time period are you asking about? (e.g., 2024, last year, January–June 2025)"
-                upsert_turn(session_id, lang,
-                    {"role": "user", "content": question},
-                    {"role": "assistant", "content": msg, "type": "clarification", "sources": []},
-                )
-
-            if loc_supported and not has_location:
-                msg = "Which neighborhood in Chicago are you asking about, or would you like data for all of Chicago?"
-                upsert_turn(session_id, lang,
-                    {"role": "user", "content": question},
-                    {"role": "assistant", "content": msg, "type": "clarification", "sources": []},
-                )
-                return jsonify({"type": "clarification", "answer": msg, "sources": [], "pending_intent": intent})
-
-            if not loc_supported and has_location and not is_citywide:
-                app.logger.info("[chat] location not supported for %s, ignoring", dataset)
-
-            if has_location and not is_citywide:
-                loc = _check_location_in_query(location_phrase or question)
-                app.logger.info("[chat] location check: %s", loc)
-                if loc["status"] == "invalid":
-                    areas_list = ", ".join(sorted(COMMUNITY_AREA_BY_NUM.values()))
-                    msg = (
-                        f"'{loc['mention']}' is not a Chicago community area. "
-                        f"Please choose one of the 77 official community areas:\n\n{areas_list}"
-                    )
-                    upsert_turn(session_id, lang,
-                        {"role": "user", "content": question},
-                        {"role": "assistant", "content": msg, "type": "clarification", "sources": []},
-                    )
-                    # Clear location so next turn's pre-flight re-checks with the user's new answer
-                    intent_without_location = {**intent, "has_location": False, "location_phrase": ""}
-                    return jsonify({"type": "clarification", "answer": msg, "sources": [], "pending_intent": intent_without_location})
-                elif loc["status"] == "valid":
-                    resolved_area_num = loc["num"]
-                    app.logger.info("[chat] resolved community area: %s → %d", loc["name"], loc["num"])
-
-        # 1. Embed
-        app.logger.info("[chat] +%s embedding question", elapsed())
-        result = _voyage.embed([question], model=MODEL_NAME, input_type="query")
-        q_vec = np.array(result.embeddings[0], dtype=np.float32)
 
         # 2. pgvector search
         app.logger.info("[chat] +%s querying Supabase", elapsed())
@@ -1717,13 +1445,6 @@ def chat():
             f"Respond in {lang_name}.\n\n"
             f"Context from chicago.gov:\n\n{context}\n\n"
             f"Question: {question}"
-=======
-        message = client.messages.create(
-            model      = "claude-haiku-4-5-20251001",
-            max_tokens = 400,
-            system     = SYSTEM_PROMPT,
-            messages   = messages,
->>>>>>> ebcf917 (Disclaimer notifications in all languages & increase token limit for arabic)
         )
         if resolved_area_num is not None:
             area_name = COMMUNITY_AREA_BY_NUM[resolved_area_num]
@@ -1869,41 +1590,20 @@ def chat():
                     raise
                 app.logger.info("[chat] +%s second Claude call done", elapsed())
 
-<<<<<<< HEAD
         if message.stop_reason == "max_tokens":
-            return jsonify({"type": "limit", "subtype": "tokens", "answer": "This tool is still being built and ran into a limit. Want to see it get better? Tap \U0001f44d below!"})
+            app.logger.info("Response truncated (max_tokens) for question: %s", question)
+            return jsonify({
+                "type"   : "limit",
+                "subtype": "tokens",
+                "answer" : (
+                    "This tool is still being built and ran into a limit. "
+                    "Want to see it get better? Tap \U0001f44d below! "
+                ),
+                "sources": [],
+            })
 
-        text_block = next((b for b in message.content if hasattr(b, "text")), None)
-        if not text_block:
-            app.logger.warning("[chat] no text block in response (stop_reason=%s)", message.stop_reason)
-            return jsonify({"type": "error", "message": "Sorry, I couldn't produce an answer. Please try again."})
-=======
-    except anthropic.BadRequestError as exc:
-        app.logger.info("Context window exceeded: %s", exc)
-        return jsonify({
-            "type"   : "limit",
-            "subtype": "context",
-            "answer" : (
-                "This tool is still being built and can only remember so much of a conversation. "
-                "Want to see it improve? Tap \U0001f44d below! "
-            ),
-            "sources": [],
-        })
-
-    if message.stop_reason == "max_tokens":
-        app.logger.info("Response truncated (max_tokens) for question: %s", question)
-        return jsonify({
-            "type"   : "limit",
-            "subtype": "tokens",
-            "answer" : (
-                "This tool is still being built and ran into a limit. "
-                "Want to see it get better? Tap \U0001f44d below! "
-            ),
-            "sources": [],
-        })
->>>>>>> 1a45a30 (Disclaimer notifications in all languages & increase token limit for arabic)
-
-        raw = text_block.text.strip()
+        text_block = next((b for b in message.content if b.type == "text"), None)
+        raw = text_block.text.strip() if text_block else ""
 
         if clarify_count < 2 and raw.upper().startswith("CLARIFY:"):
             clarification = raw[len("CLARIFY:"):].strip()
@@ -1927,28 +1627,7 @@ def chat():
                             used_urls.add(url)
                 answer_text = "\n".join(lines[:i]).strip()
                 break
-        # Parse SOURCES line
-        answer_text = raw
-        used_urls: set[str] = set()
-        lines = raw.splitlines()
-        for i, line in enumerate(lines):
-            if line.strip().upper().startswith("SOURCES:"):
-                payload = line.split(":", 1)[1].strip()
-                if payload.lower() != "none":
-                    for part in payload.split(","):
-                        url = part.strip().rstrip(".")
-                        if url:
-                            used_urls.add(url)
-                answer_text = "\n".join(lines[:i]).strip()
-                break
 
-        fallback_used = False
-        if used_urls:
-            filtered_sources = [s for s in sources if s["url"] in used_urls]
-            if not filtered_sources:
-                filtered_sources = [s for s in sources if any(u in s["url"] for u in used_urls)]
-        else:
-            filtered_sources = []
         fallback_used = False
         if used_urls:
             filtered_sources = [s for s in sources if s["url"] in used_urls]
@@ -1960,37 +1639,7 @@ def chat():
         if not filtered_sources and sources:
             filtered_sources = sources
             fallback_used = True
-        if not filtered_sources and sources:
-            filtered_sources = sources
-            fallback_used = True
 
-        app.logger.info("[chat] +%s logging to DB", elapsed())
-        log_source_debug(session_id, question,
-            retrieved_urls=[s["url"] for s in sources],
-            used_urls=used_urls,
-            filtered_urls=[s["url"] for s in filtered_sources],
-            fallback_used=fallback_used,
-        )
-        if data_query_meta:
-            log_data_query(session_id, question,
-                data_query_meta["dataset"], data_query_meta["where"],
-                data_query_meta["select"],  data_query_meta["records_returned"],
-                tool_result,
-            )
-
-        assistant_turn = {
-            "role": "assistant", "content": answer_text, "type": "answer",
-            "sources": [s["url"] for s in filtered_sources],
-            "used_urls": sorted(used_urls),
-            "fallback_used": fallback_used,
-        }
-        if data_query_meta:
-            assistant_turn["data_query"] = data_query_meta
-        upsert_turn(session_id, lang,
-            {"role": "user", "content": question},
-            assistant_turn,
-        )
-        app.logger.info("[chat] +%s done", elapsed())
         app.logger.info("[chat] +%s logging to DB", elapsed())
         log_source_debug(session_id, question,
             retrieved_urls=[s["url"] for s in sources],
@@ -2038,28 +1687,17 @@ def chat():
             resp_body["data_query"] = data_query_meta
         return jsonify(resp_body)
 
-    except Exception as exc:
-        app.logger.error("[chat] unexpected error: %s", exc, exc_info=True)
-        return jsonify({"type": "error", "message": "Something went wrong. Please try again."}), 500
-        if data_query_meta:
-            dataset_id = DATASETS.get(data_query_meta["dataset"], "")
-            filtered_sources = [
-                {"title": "Chicago Open Data Portal", "url": "https://data.cityofchicago.org"},
-                {"title": f"Dataset: {data_query_meta['dataset']} ({dataset_id})",
-                 "url": f"https://data.cityofchicago.org/resource/{dataset_id}"},
-            ]
-
-        resp_body = {
-            "type"       : "answer",
-            "answer"     : answer_text,
-            "sources"    : filtered_sources,
-            "scrape_date": SCRAPE_DATE,
-            "disclaimer" : DISCLAIMER_TEMPLATE.format(date=SCRAPE_DATE),
-        }
-        if data_query_meta:
-            resp_body["data_query"] = data_query_meta
-        return jsonify(resp_body)
-
+    except anthropic.BadRequestError as exc:
+        app.logger.info("Context window exceeded: %s", exc)
+        return jsonify({
+            "type"   : "limit",
+            "subtype": "context",
+            "answer" : (
+                "This tool is still being built and can only remember so much of a conversation. "
+                "Want to see it improve? Tap \U0001f44d below! "
+            ),
+            "sources": [],
+        })
     except Exception as exc:
         app.logger.error("[chat] unexpected error: %s", exc, exc_info=True)
         return jsonify({"type": "error", "message": "Something went wrong. Please try again."}), 500

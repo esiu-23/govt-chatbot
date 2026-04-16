@@ -47,45 +47,6 @@
       outline-offset: 2px;
     }
 
-    /* ── Accessibility utilities ──────────────────────────────────────── */
-    .sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0,0,0,0);
-      white-space: nowrap;
-      border: 0;
-    }
-
-    .skip-link {
-      position: absolute;
-      top: -48px;
-      left: 0;
-      background: #003F87;
-      color: #fff;
-      padding: 10px 18px;
-      z-index: 9999;
-      font-weight: 600;
-      text-decoration: none;
-      border-radius: 0 0 8px 0;
-      transition: top .15s;
-    }
-    .skip-link:focus { top: 0; }
-
-    /* ── Global focus indicator ───────────────────────────────────────── */
-    :focus-visible {
-      outline: 3px solid #003F87;
-      outline-offset: 2px;
-    }
-    header :focus-visible,
-    #lang-select:focus-visible {
-      outline: 3px solid #fff;
-      outline-offset: 2px;
-    }
-
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #f0f4f8;
@@ -133,8 +94,6 @@
       font-weight: 600;
       padding: 8px 14px;
       min-height: 36px;
-      padding: 8px 14px;
-      min-height: 36px;
       cursor: pointer;
       flex-shrink: 0;
       white-space: nowrap;
@@ -160,7 +119,6 @@
       border: 1px solid rgba(255,255,255,.4);
       border-radius: 6px;
       padding: 5px 28px 5px 10px;
-      min-height: 36px;
       min-height: 36px;
       font-size: 0.8rem;
       cursor: pointer;
@@ -227,11 +185,6 @@
     .do-list li, .dont-list li { padding-left: 1.4em; text-indent: -1.4em; }
     .do-list li::before   { content: "✓ "; color: #276749; font-weight: 700; }
     .dont-list li::before { content: "✗ "; color: #c53030; font-weight: 700; }
-    .info-section .do-list,
-    .info-section .dont-list { list-style: none; padding-left: 0; }
-    .do-list li, .dont-list li { padding-left: 1.4em; text-indent: -1.4em; }
-    .do-list li::before   { content: "✓ "; color: #276749; font-weight: 700; }
-    .dont-list li::before { content: "✗ "; color: #c53030; font-weight: 700; }
     .do-list li   { color: #276749; }
     .dont-list li { color: #c53030; }
 
@@ -246,8 +199,6 @@
       background: #e8f0fe;
       border: 1px solid #c3d3f7;
       color: #003F87;
-      padding: 8px 14px;
-      min-height: 36px;
       padding: 8px 14px;
       min-height: 36px;
       border-radius: 20px;
@@ -336,7 +287,6 @@
     .sources a {
       color: #003F87;
       text-decoration: underline;
-      text-decoration: underline;
       display: block;
       margin-top: 2px;
     }
@@ -345,7 +295,6 @@
     .disclaimer {
       margin-top: 6px;
       font-size: 0.7rem;
-      color: #4a5568;
       color: #4a5568;
       font-style: italic;
     }
@@ -364,12 +313,28 @@
       color: #742a2a;
     }
 
-    /* ── Status indicator (replaces floating dots) ───────────────────── */
+    /* ── Status indicator / typing dots ─────────────────────────────── */
     .typing .bubble {
       padding: 12px 16px;
-      font-size: 0.85rem;
-      color: #718096;
-      font-style: italic;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #718096;
+      animation: dot-bounce 1.2s infinite ease-in-out;
+    }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dot-bounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40%            { transform: scale(1);   opacity: 1;   }
     }
 
     /* ── Empty-state prompt ───────────────────────────────────────────── */
@@ -398,7 +363,6 @@
       border-radius: 24px;
       padding: 10px 18px;
       min-height: 44px;
-      min-height: 44px;
       font-size: 0.92rem;
       transition: border-color .2s;
     }
@@ -409,7 +373,6 @@
       border: none;
       border-radius: 24px;
       padding: 10px 22px;
-      min-height: 44px;
       min-height: 44px;
       font-size: 0.92rem;
       font-weight: 600;
@@ -427,10 +390,8 @@
       border-top: 1px solid #c3d3f7;
       margin-bottom: 1rem;
       padding-bottom: 0.5rem;
-      padding-bottom: 0.5rem;
       overflow: hidden;
       transition: max-height .25s ease;
-      max-height: 64px;   /* collapsed height */
       max-height: 64px;   /* collapsed height */
     }
     #feedback-strip.open { max-height: 200px; }
@@ -452,8 +413,6 @@
       padding: 3px 10px;
       min-height: 44px;
       min-width: 44px;
-      min-height: 44px;
-      min-width: 44px;
       font-size: 1rem;
       line-height: 1.4;
       cursor: pointer;
@@ -462,14 +421,6 @@
     .thumb-btn:hover       { background: #e8f0fe; border-color: #003F87; }
     .thumb-btn.active-up   { background: #d1fae5; border-color: #276749; }
     .thumb-btn.active-down { background: #fee2e2; border-color: #c53030; }
-    /* Show "(selected)" text after active thumb for non-color indication */
-    .thumb-btn.active-up::after,
-    .thumb-btn.active-down::after {
-      content: " (selected)";
-      font-size: 0.65rem;
-      vertical-align: middle;
-      font-weight: 600;
-    }
     /* Show "(selected)" text after active thumb for non-color indication */
     .thumb-btn.active-up::after,
     .thumb-btn.active-down::after {
@@ -623,8 +574,6 @@
 
 <a href="#question" class="skip-link">Skip to chat</a>
 
-<a href="#question" class="skip-link">Skip to chat</a>
-
 <header>
   <div class="flag">
     <div class="flag-stripe blue"></div>
@@ -633,9 +582,7 @@
   </div>
   <div class="header-title">
     <h1 id="header-title">Chicago City Services Chat Assistant</h1>
-    <p id="header-subtitle">Powered by chicago.gov, cps.edu, and chicagoparkdistrict.com</p>
-    <h1 id="header-title">Chicago City Services Chat Assistant</h1>
-    <p id="header-subtitle">Powered by chicago.gov, cps.edu, and chicagoparkdistrict.com</p>
+    <p id="header-subtitle">Powered by chicago.gov, Chicago Park District, CPS, and Chicago Open Data Portal</p>
   </div>
 
   <button id="info-toggle" onclick="toggleInfoPanel()" aria-label="Show info">Info</button>
@@ -666,21 +613,13 @@
         <p>This is a helper tool that answers questions about <strong>City of Chicago services</strong>. It covers city departments, Chicago Public Schools, and the Chicago Park District. <strong>Note this is not an official city tool.</strong></p>
         <p style="margin-top:8px">All answers come from <strong>chicago.gov</strong>, <strong>cps.edu</strong>, and <strong>chicagoparkdistrict.com</strong>. Think of it as a smart search through city websites.</p>
       </div>
-      <h2 id="about-heading">About This Tool</h2>
-      <div id="about-text">
-        <p>This is a helper tool that answers questions about <strong>City of Chicago services</strong>. It covers city departments, Chicago Public Schools, and the Chicago Park District. <strong>Note this is not an official city tool.</strong></p>
-        <p style="margin-top:8px">All answers come from <strong>chicago.gov</strong>, <strong>cps.edu</strong>, and <strong>chicagoparkdistrict.com</strong>. Think of it as a smart search through city websites.</p>
-      </div>
     </div>
 
-    <div class="data-notice" id="data-notice-el">
     <div class="data-notice" id="data-notice-el">
       <strong>Data notice:</strong> This tool uses limited saved snapshots of chicago.gov, cps.edu, and chicagoparkdistrict.com as of 4/11/26. The answers show the date when the information was last collected. For the most current details, follow the source links in each answer.
     </div>
 
     <div class="info-section">
-      <h2 id="how-to-heading">How to Use It</h2>
-      <ol id="how-to-ol">
       <h2 id="how-to-heading">How to Use It</h2>
       <ol id="how-to-ol">
         <li>Type your question in plain English — no special words needed.</li>
@@ -692,28 +631,19 @@
 
     <div class="info-section">
       <h2 id="examples-heading">Example Questions to Ask</h2>
-      <h2 id="examples-heading">Example Questions to Ask</h2>
       <div class="suggestions">
-        <button class="suggestion-btn" id="suggestion-0" onclick="ask(this)">How do I get a business license?</button>
         <button class="suggestion-btn" id="suggestion-1" onclick="ask(this)">How do I enroll my child in CPS?</button>
         <button class="suggestion-btn" id="suggestion-2" onclick="ask(this)">What free programs does Chicago offer for kids?</button>
-        <button class="suggestion-btn" id="suggestion-3" onclick="ask(this)">Where can I find free job training programs?</button>
-        <button class="suggestion-btn" id="suggestion-0" onclick="ask(this)">How do I get a business license?</button>
-        <button class="suggestion-btn" id="suggestion-1" onclick="ask(this)">How do I enroll my child in CPS?</button>
-        <button class="suggestion-btn" id="suggestion-2" onclick="ask(this)">What free programs does Chicago offer for kids?</button>
-        <button class="suggestion-btn" id="suggestion-3" onclick="ask(this)">Where can I find free job training programs?</button>
+        <button class="suggestion-btn" id="suggestion-3" onclick="ask(this)">How many 311 requests were filed in the Near West Side in 2025?</button>
       </div>
     </div>
 
     <div class="info-section">
       <h2 id="cant-do-heading">What It Can't Do</h2>
       <ul class="dont-list" id="cant-do-ul">
-      <h2 id="cant-do-heading">What It Can't Do</h2>
-      <ul class="dont-list" id="cant-do-ul">
         <li>It cannot access your personal city accounts or records.</li>
         <li>It cannot process payments or applications.</li>
         <li>It cannot answer questions unrelated to Chicago city services, schools, or parks.</li>
-        <li>It may not have the very latest updates — always verify with the official site for important matters.</li>
         <li>It may not have the very latest updates — always verify with the official site for important matters.</li>
       </ul>
     </div>
@@ -723,10 +653,7 @@
   <!-- ── Right chat panel (2/3) ─────────────────────────────────────── -->
   <main id="chat-panel">
     <div id="chat" role="log" aria-live="polite" aria-label="Chat messages">
-  <main id="chat-panel">
-    <div id="chat" role="log" aria-live="polite" aria-label="Chat messages">
       <div class="empty-state">
-        <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
@@ -736,9 +663,7 @@
 
     <div id="input-bar">
       <label for="question" class="sr-only">Ask a question about Chicago city services</label>
-      <label for="question" class="sr-only">Ask a question about Chicago city services</label>
       <input id="question" type="text" placeholder="Ask about Chicago city services…" autocomplete="off" />
-      <button id="send" aria-label="Send question" onclick="sendMessage()">Send</button>
       <button id="send" aria-label="Send question" onclick="sendMessage()">Send</button>
     </div>
 
@@ -748,24 +673,17 @@
         <span id="feedback-helpful-text">Find this helpful?</span>
         <button class="thumb-btn" id="thumb-up"   aria-label="Helpful" aria-pressed="false" onclick="chooseFeedback('up')">👍</button>
         <button class="thumb-btn" id="thumb-down" aria-label="Not helpful" aria-pressed="false" onclick="chooseFeedback('down')">👎</button>
-        <span id="feedback-helpful-text">Find this helpful?</span>
-        <button class="thumb-btn" id="thumb-up"   aria-label="Helpful" aria-pressed="false" onclick="chooseFeedback('up')">👍</button>
-        <button class="thumb-btn" id="thumb-down" aria-label="Not helpful" aria-pressed="false" onclick="chooseFeedback('down')">👎</button>
       </div>
       <div id="feedback-form">
         <p id="feedback-subtext"></p>
-        <label for="feedback-note" class="sr-only">Additional feedback (optional)</label>
         <label for="feedback-note" class="sr-only">Additional feedback (optional)</label>
         <textarea id="feedback-note" placeholder="" rows="3"></textarea>
         <div id="feedback-actions">
           <button class="fb-btn" id="feedback-cancel" aria-label="Cancel feedback" onclick="closeFeedback()">Cancel</button>
           <button class="fb-btn" id="feedback-send"   aria-label="Submit feedback" onclick="submitFeedback()">Send</button>
-          <button class="fb-btn" id="feedback-cancel" aria-label="Cancel feedback" onclick="closeFeedback()">Cancel</button>
-          <button class="fb-btn" id="feedback-send"   aria-label="Submit feedback" onclick="submitFeedback()">Send</button>
         </div>
       </div>
     </div>
-  </main>
   </main>
 
 </div>
@@ -777,8 +695,6 @@
 
   function toggleInfoPanel() {
     const isOpen = infoPanel.classList.toggle("mobile-open");
-    const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
-    infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
     const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
     infoToggle.textContent = isOpen ? s.infoToggleClose : s.infoToggle;
     infoToggle.setAttribute("aria-expanded", isOpen);
@@ -794,8 +710,6 @@
       infoPanel.classList.remove("mobile-open");
       const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
       infoToggle.textContent = s.infoToggle;
-      const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
-      infoToggle.textContent = s.infoToggle;
       infoToggle.setAttribute("aria-expanded", false);
     }
   });
@@ -805,10 +719,6 @@
   const sendBtn   = document.getElementById("send");
   const langSel   = document.getElementById("lang-select");
 
-  const sessionId = (crypto.randomUUID
-    ? crypto.randomUUID()
-    : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-        (c ^ (Math.random() * 16 >> c / 4)).toString(16)));   // unique per page load; sent with every /chat request
   const sessionId = (crypto.randomUUID
     ? crypto.randomUUID()
     : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
@@ -1148,17 +1058,6 @@
     } else {
       bubble.innerHTML = linkify(answer);
     }
-    if (isLimit) bubble.setAttribute("role", "alert");
-    if (isClarification) {
-      const noteLabel = document.createElement("strong");
-      noteLabel.textContent = "Note: ";
-      bubble.appendChild(noteLabel);
-      const textNode = document.createElement("span");
-      textNode.innerHTML = linkify(answer);
-      bubble.appendChild(textNode);
-    } else {
-      bubble.innerHTML = linkify(answer);
-    }
     msg.appendChild(bubble);
 
     // Sources (omit for clarifying questions and limit messages)
@@ -1190,8 +1089,6 @@
     msg.className = "msg bot typing";
     msg.setAttribute("aria-label", "Assistant is typing");
     msg.innerHTML = `<div class="bubble" aria-hidden="true">
-    msg.setAttribute("aria-label", "Assistant is typing");
-    msg.innerHTML = `<div class="bubble" aria-hidden="true">
       <span class="dot"></span>
       <span class="dot"></span>
       <span class="dot"></span>
@@ -1203,13 +1100,17 @@
 
   function updateStatus(el, text) {
     const bubble = el.querySelector(".bubble");
-    if (bubble) bubble.textContent = text;
+    if (bubble) {
+      bubble.style.fontSize  = "0.85rem";
+      bubble.style.color     = "#718096";
+      bubble.style.fontStyle = "italic";
+      bubble.innerHTML = text;
+    }
   }
 
   function setLoading(on) {
     sendBtn.disabled = on;
     inputEl.disabled = on;
-    if (!on) inputEl.focus();
     if (!on) inputEl.focus();
   }
 
@@ -1229,8 +1130,6 @@
     currentFeedbackType = type;
     const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
     const subtext = type === "up" ? s.feedbackUpSubtext : s.feedbackDownSubtext;
-    const s = UI_STRINGS[langSel.value] || UI_STRINGS.en;
-    const subtext = type === "up" ? s.feedbackUpSubtext : s.feedbackDownSubtext;
 
     // Highlight the chosen thumb and update aria-pressed
     const thumbUp   = document.getElementById("thumb-up");
@@ -1239,17 +1138,7 @@
     thumbDown.classList.toggle("active-down", type === "down");
     thumbUp.setAttribute("aria-pressed",   String(type === "up"));
     thumbDown.setAttribute("aria-pressed", String(type === "down"));
-    // Highlight the chosen thumb and update aria-pressed
-    const thumbUp   = document.getElementById("thumb-up");
-    const thumbDown = document.getElementById("thumb-down");
-    thumbUp.classList.toggle("active-up",   type === "up");
-    thumbDown.classList.toggle("active-down", type === "down");
-    thumbUp.setAttribute("aria-pressed",   String(type === "up"));
-    thumbDown.setAttribute("aria-pressed", String(type === "down"));
 
-    feedbackSubtext.textContent  = subtext;
-    feedbackNote.placeholder     = subtext;
-    feedbackSend.textContent     = s.feedbackSendLabel;
     feedbackSubtext.textContent  = subtext;
     feedbackNote.placeholder     = subtext;
     feedbackSend.textContent     = s.feedbackSendLabel;
@@ -1269,17 +1158,10 @@
     thumbDown.classList.remove("active-down");
     thumbUp.setAttribute("aria-pressed", "false");
     thumbDown.setAttribute("aria-pressed", "false");
-    const thumbUp   = document.getElementById("thumb-up");
-    const thumbDown = document.getElementById("thumb-down");
-    thumbUp.classList.remove("active-up");
-    thumbDown.classList.remove("active-down");
-    thumbUp.setAttribute("aria-pressed", "false");
-    thumbDown.setAttribute("aria-pressed", "false");
   }
 
   function submitFeedback() {
     if (!currentFeedbackType) return;
-    const s    = UI_STRINGS[langSel.value] || UI_STRINGS.en;
     const s    = UI_STRINGS[langSel.value] || UI_STRINGS.en;
     const note = feedbackNote.value.trim();
 
@@ -1295,18 +1177,15 @@
     .then(data => {
       if (data.ok) {
         feedbackSend.textContent = s.feedbackSuccess;
-        feedbackSend.textContent = s.feedbackSuccess;
         setTimeout(closeFeedback, 2000);
       } else {
         feedbackSend.disabled    = false;
-        feedbackSend.textContent = s.feedbackSendLabel;
         feedbackSend.textContent = s.feedbackSendLabel;
         alert("Something went wrong: " + (data.error || "unknown error"));
       }
     })
     .catch(() => {
       feedbackSend.disabled    = false;
-      feedbackSend.textContent = s.feedbackSendLabel;
       feedbackSend.textContent = s.feedbackSendLabel;
       alert("Could not reach the server.");
     });
