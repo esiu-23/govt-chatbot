@@ -827,6 +827,7 @@ def chat():
         return f"{time.monotonic() - t0:.2f}s"
 
     try:
+<<<<<<< HEAD
         # 0. Intent parsing — reuse stored intent if user is answering a CLARIFY
         if pending_intent and clarify_count > 0:
             intent = pending_intent
@@ -944,6 +945,13 @@ def chat():
             f"Respond in {lang_name}.\n\n"
             f"Context from chicago.gov:\n\n{context}\n\n"
             f"Question: {question}"
+=======
+        message = client.messages.create(
+            model      = "claude-haiku-4-5-20251001",
+            max_tokens = 400,
+            system     = SYSTEM_PROMPT,
+            messages   = messages,
+>>>>>>> ebcf917 (Disclaimer notifications in all languages & increase token limit for arabic)
         )
         if resolved_area_num is not None:
             area_name = COMMUNITY_AREA_BY_NUM[resolved_area_num]
