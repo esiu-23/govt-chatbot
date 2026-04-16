@@ -16,6 +16,8 @@ import os
 import gc
 import re
 import csv
+import re
+import csv
 import json
 import time
 import socket
@@ -670,6 +672,30 @@ SYSTEM_PROMPT_DOMAIN = (
     "HARD RULE — URLS: Never invent, guess, or construct a URL. Only use URLs "
     "that appear verbatim in the City of Chicago website content provided above. "
     "If no URL is present in that content, do not include any link in your response.\n\n"
+
+    "DATA QUERIES: ONLY use the query_chicago_data tool when the question is EXPLICITLY about "
+    "one of these four topics available on the Chicago Open Data Portal: business licenses, "
+    "building permits, crime incidents, or 311 service requests. "
+    "Do NOT use the tool for schools, enrollment, parks, libraries, transit, "
+    "health, or any other topic — even if the question contains words like 'how many' or 'count'. "
+    "For questions about Chicago Public Schools or Chicago Park District, use the RAG context from cps.edu or chicagoparkdistrict.com instead. "
+    "When the tool IS appropriate, fetch live data and ONLY report the exact figures returned — "
+    "do not estimate, extrapolate, or invent numbers. "
+    "State the dataset name (e.g. 'The Chicago Open Data Portal crime dataset shows ...'). "
+    "If the query returned no results or an error, say so explicitly. "
+    "For data answers, skip the SOURCES line and instead cite 'data.cityofchicago.org'.\n\n"
+    "COMMUNITY AREAS: Chicago's datasets use numeric community area codes. "
+    "The valid community areas are listed in the query_chicago_data tool description. "
+    "If a user asks about a neighborhood that is NOT in that list (e.g. a street, landmark, "
+    "or informal name like 'River North' or 'Mag Mile'), explicitly tell them it is not a "
+    "Chicago community area and suggest the closest valid community area if obvious.\n\n"
+
+    "OUT-OF-SCOPE QUANTITATIVE QUESTIONS: If the user asks a quantitative question "
+    "(e.g. 'how many', 'count', 'total', 'percentage') about a topic that is NOT one of the four "
+    "Chicago Open Data Portal datasets (business licenses, building permits, crime, 311 requests), "
+    "answer from the RAG context if possible, then add on a new line: "
+    "'Note: This tool is still in development and is only scoped for a limited set of city data. "
+    "If you find it helpful and want to see it improve, hit the thumbs up button below!'\n\n"
 
     "SOURCES LINE: After your answer, on a new line, write exactly:\n"
     "  SOURCES: <comma-separated list of the source URLs you actually used from the context>\n"

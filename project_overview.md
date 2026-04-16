@@ -374,12 +374,18 @@ DigitalOcean).
 | Missing component clarification | If `is_data_query=true` but `has_time=false` or `has_location=false`, return a targeted clarification before embedding | Ensures Claude always has time + location context to form a good SODA query |
 | Citywide detection | `_CITYWIDE_RE` in `_check_location_in_query` catches "all of Chicago", "citywide", etc. | Returns `status: citywide` so no community area filter is applied |
 | Socrata error logging | HTTPError body now logged and returned in detail field | Enables debugging of 400 Bad Request errors from bad SODA where/select clauses |
+<<<<<<< HEAD
 | Socrata 400 error handling | HTTP 400 from Socrata returns an error message to the user instead of falling back to RAG | A 400 indicates a bad query (invalid field/syntax); RAG fallback would silently hide the failure and give a confusing answer |
+=======
+>>>>>>> b3e3ea2 (Sync with main)
 | Community area CSV | Boundaries_-_Community_Areas*.csv loaded at startup | Provides name→number and number→name lookup for all 77 Chicago community areas |
 | Location pre-flight | _check_location_in_query() runs before Voyage embed on data queries | If user mentions an invalid neighborhood, returns clarification with full list before any API call |
 | Community area injection | Resolved area number injected into user_content as a [LOCATION NOTE] | Guarantees Claude uses bare integer (e.g. community_area=28) not a quoted name in the WHERE clause |
 | Server-side translation | _translate_community_areas_in_where() applied to Claude's WHERE clause | Safety net: swaps any remaining quoted area name to its number before hitting Socrata |
+<<<<<<< HEAD
 | Anthropic overload retry + fallback | `_claude_create()` wraps all `client.messages.create` calls with exponential-backoff retry (up to 3 attempts, 2s/4s delays) on HTTP 529; if Haiku is still overloaded after all retries, falls back to `claude-sonnet-4-6` for one final attempt | Anthropic occasionally returns 529 OverloadedError under high load; retrying + falling back to Sonnet avoids user-facing errors during Haiku capacity spikes |
+=======
+>>>>>>> b3e3ea2 (Sync with main)
 
 ---
 
