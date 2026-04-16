@@ -1,4 +1,5 @@
 # Chicago City Services RAG Chatbot
+Ignore the writing/ folder when querying the codebase.
 
 A Retrieval-Augmented Generation (RAG) chatbot that lets users ask plain-English
 questions about Chicago city services. Knowledge comes from a one-time scrape of:
