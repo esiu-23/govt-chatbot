@@ -863,6 +863,41 @@ def load_resources() -> None:
 # ---------------------------------------------------------------------------
 # Conversation logging
 # ---------------------------------------------------------------------------
+def save_last_intent(session_id: str, intent: dict | None) -> None:
+    """Persist (or clear) the last known data-query intent for a session."""
+    if not session_id:
+        return
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO sessions (session_id, lang, conversation, last_intent) "
+                "VALUES (%s, '', '[]'::jsonb, %s::jsonb) "
+                "ON CONFLICT (session_id) DO UPDATE SET last_intent = EXCLUDED.last_intent",
+                (session_id, json.dumps(intent) if intent is not None else None),
+            )
+    except Exception as exc:
+        app.logger.error("DB save_last_intent failed: %s", exc)
+
+
+def get_last_intent(session_id: str) -> dict | None:
+    """Retrieve the last stored data-query intent for a session, or None."""
+    if not session_id:
+        return None
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT last_intent FROM sessions WHERE session_id = %s", (session_id,)
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                return row[0]
+    except Exception as exc:
+        app.logger.error("DB get_last_intent failed: %s", exc)
+    return None
+
+
 def upsert_turn(session_id, lang, user_turn, assistant_turn):
     """Append a user + assistant turn pair to this session's conversation JSON."""
     if not session_id:
@@ -1302,22 +1337,33 @@ def chat():
         return f"{time.monotonic() - t0:.2f}s"
 
     try:
-        # 0. Intent parsing — reuse stored intent if user is answering a CLARIFY
-        if pending_intent and clarify_count > 0:
-            intent = pending_intent
-            latest_intent = _parse_intent(question, history)
-            # Merge rules:
-            # 1. If original had a real value and latest has nothing new → keep original.
-            # 2. Otherwise (original was default, OR latest has an explicit new value) → take latest.
-            _DEFAULTS = (False, "", None)
-            updated_intent = {**intent}
-            for key, value in latest_intent.items():
-                original_value = intent.get(key)
-                if original_value not in _DEFAULTS and value in _DEFAULTS:
-                    continue  # preserve original non-default when clarification is silent on this field
-                updated_intent[key] = value
+        # ---------------------------------------------------------------------------
+        # Helper: merge two intents — keep original non-default values when the
+        # latest parse is silent on a field; take latest when it has real content.
+        # Enforces consistency: has_location=True forces is_citywide=False.
+        # ---------------------------------------------------------------------------
+        _DEFAULTS = (False, "", None)
 
-            app.logger.info("[chat] +%s updated pending_intent: %s", elapsed(), updated_intent)
+        def _merge_intents(base: dict, latest: dict) -> dict:
+            merged = {**base}
+            for key, value in latest.items():
+                base_value = base.get(key)
+                if base_value not in _DEFAULTS and value in _DEFAULTS:
+                    continue  # preserve base non-default when latest is silent
+                merged[key] = value
+            if merged.get("has_location") and merged.get("location_phrase"):
+                merged["is_citywide"] = False
+            return merged
+
+        # 0. Intent parsing — three cases:
+        #    a) Frontend sent pending_intent (pre-flight clarification answered)
+        #    b) No pending_intent, but we have a stored intent for this session
+        #       (Claude asked its own clarification without pending_intent)
+        #    c) Fresh parse with no prior context
+        if pending_intent and clarify_count > 0:
+            latest_intent = _parse_intent(question, history)
+            intent = _merge_intents(pending_intent, latest_intent)
+            app.logger.info("[chat] +%s merged pending_intent: %s", elapsed(), intent)
         else:
             app.logger.info("[chat] +%s parsing intent", elapsed())
             try:
@@ -1328,6 +1374,14 @@ def chat():
                     return jsonify({"type": "error", "message": "This service is briefly overloaded. Please try again in a moment."})
                 raise
             app.logger.info("[chat] intent: %s", intent)
+
+            # Merge with stored intent when this is a follow-up data query on the
+            # same dataset (recovers location/context lost across chat clarifications).
+            if intent.get("is_data_query"):
+                stored = get_last_intent(session_id)
+                if stored and stored.get("dataset") == intent.get("dataset"):
+                    intent = _merge_intents(stored, intent)
+                    app.logger.info("[chat] +%s merged with stored intent: %s", elapsed(), intent)
 
         
         use_data_tool       = bool(intent.get("is_data_query"))
@@ -1357,6 +1411,7 @@ def chat():
                     {"role": "user", "content": question},
                     {"role": "assistant", "content": msg, "type": "clarification", "sources": []},
                 )
+                save_last_intent(session_id, intent)
                 return jsonify({"type": "clarification", "answer": msg, "sources": [], "pending_intent": intent})
 
             if not loc_supported and has_location and not is_citywide:
@@ -1377,6 +1432,7 @@ def chat():
                     )
                     # Clear location so next turn's pre-flight re-checks with the user's new answer
                     intent_without_location = {**intent, "has_location": False, "location_phrase": ""}
+                    save_last_intent(session_id, intent_without_location)
                     return jsonify({"type": "clarification", "answer": msg, "sources": [], "pending_intent": intent_without_location})
                 elif loc["status"] == "valid":
                     resolved_area_num = loc["num"]
@@ -1693,6 +1749,7 @@ def chat():
                 {"role": "user",      "content": question},
                 {"role": "assistant", "content": clarification, "type": "clarification", "sources": []},
             )
+            save_last_intent(session_id, intent)
             return jsonify({"type": "clarification", "answer": clarification, "sources": [], "pending_intent": intent})
 
         # Parse SOURCES line
@@ -1748,6 +1805,8 @@ def chat():
             {"role": "user", "content": question},
             assistant_turn,
         )
+        # Final answer delivered — clear stored intent so it doesn't bleed into a new question
+        save_last_intent(session_id, None)
         app.logger.info("[chat] +%s done", elapsed())
 
         if data_query_meta:

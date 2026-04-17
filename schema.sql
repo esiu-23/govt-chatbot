@@ -40,8 +40,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     lang          TEXT,
     conversation  JSONB NOT NULL DEFAULT '[]',
     feedback      TEXT,
-    feedback_note TEXT
+    feedback_note TEXT,
+    last_intent   JSONB         -- last known data-query intent for this session
 );
+
+-- Migration for existing deployments:
+-- ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_intent JSONB;
 
 CREATE TABLE IF NOT EXISTS source_debug_log (
     id             SERIAL PRIMARY KEY,
