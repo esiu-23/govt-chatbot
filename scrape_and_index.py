@@ -50,6 +50,17 @@ DEPTS_URL      = "https://www.chicago.gov/city/en/depts.html"
 VECTORS_DIR          = Path("vectors")
 PAGES_CACHE          = VECTORS_DIR / "scraped_pages.json"
 
+# URL slug fragments that identify site-wide boilerplate pages present on every page
+# (footer links, legal notices, etc.).  Filtering these avoids indexing the same
+# policy/legal/navigation content dozens of times across the index.
+_BOILERPLATE_SLUGS = frozenset([
+    "privacy", "terms-of-use", "terms-of-service", "terms-and-conditions",
+    "accessibility", "sitemap", "copyright", "disclaimer",
+    "feedback", "subscribe", "newsletter",
+    "cookie", "legal-notice", "contact-us",
+    "advertising", "sponsorship",
+])
+
 # Additional city-related sites to scrape (one level deep from each seed URL)
 EXTRA_SOURCES = [
     {
@@ -57,12 +68,13 @@ EXTRA_SOURCES = [
         "base_url" : "https://www.cps.edu",
         "seed_url" : "https://www.cps.edu",
         "level1"   : "Education",
-        # Keep only same-domain paths; skip anchors, media files, and login pages
+        # Keep only same-domain paths; skip anchors, media files, login pages, and boilerplate
         "link_filter": lambda href: (
             href.startswith("/")
             and not any(x in href for x in ["#", "javascript:", ".pdf", ".doc",
                                              ".xls", ".ppt", "login", "logout",
                                              "account", "calendar/event"])
+            and not any(slug in href.lower() for slug in _BOILERPLATE_SLUGS)
         ),
     },
     {
@@ -75,15 +87,16 @@ EXTRA_SOURCES = [
             and not any(x in href for x in ["#", "javascript:", ".pdf", ".doc",
                                              ".xls", ".ppt", "login", "logout",
                                              "account", "/events/",
-                                             "privacy", "advertising", "sponsorship",
-                                             "capital-improvement", "careers",
-                                             "accessibility", "sitemap"])
+                                             "capital-improvement", "careers"])
+            and not any(slug in href.lower() for slug in _BOILERPLATE_SLUGS)
         ),
     },
 ]
 
 # Max pages to collect per extra source (keeps runtime reasonable)
-EXTRA_SOURCE_MAX_PAGES = 60
+EXTRA_SOURCE_MAX_PAGES   = 60
+CHICAGO_L2_MAX_PER_DEPT  = 10   # max sub-pages to scrape per chicago.gov department
+EXTRA_L2_MAX_TOTAL       = 60   # max additional level-2 pages per extra source
 EMBEDDINGS_CKPT      = Path("vectors/embeddings_checkpoint.npz")
 MODEL_NAME           = "voyage-multilingual-2"
 MAX_CHARS            = 2000   # target chunk size (chars; ~500 tokens)
@@ -117,8 +130,12 @@ def get_dept_links(url: str) -> list[str]:
     seen  = set()
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        # Keep only department sub-pages (not the index page itself)
-        if "/depts/" in href and href not in ("/city/en/depts.html", "/content/city/en/depts.html"):
+        # Keep only department sub-pages (not the index page itself or boilerplate)
+        if (
+            "/depts/" in href
+            and href not in ("/city/en/depts.html", "/content/city/en/depts.html")
+            and not any(slug in href.lower() for slug in _BOILERPLATE_SLUGS)
+        ):
             full = BASE_URL + href if href.startswith("/") else href
             if full not in seen:
                 seen.add(full)
@@ -175,6 +192,42 @@ def scrape_page(url: str) -> dict | None:
     except Exception as exc:
         print(f"  [WARN] Could not scrape {url}: {exc}")
         return None
+
+
+def get_chicago_sublinks(dept_url: str) -> list[str]:
+    """
+    Fetch a chicago.gov department page and return links to its sub-pages (level 2).
+    Sub-pages share a path prefix with the department URL, e.g.:
+      dept_url  → https://www.chicago.gov/city/en/depts/cpd.html
+      sub-pages → https://www.chicago.gov/city/en/depts/cpd/supp_info/...
+    """
+    try:
+        resp = requests.get(dept_url, headers=HEADERS, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+    except Exception as exc:
+        print(f"  [WARN] Could not fetch sub-links from {dept_url}: {exc}")
+        return []
+
+    # Build dept path prefix: strip BASE_URL and trailing ".html"
+    # e.g. /city/en/depts/cpd.html → /city/en/depts/cpd
+    dept_path = dept_url.replace(BASE_URL, "")
+    if dept_path.endswith(".html"):
+        dept_path = dept_path[:-5]
+
+    seen  = set()
+    links = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"].split("?")[0].rstrip("/")
+        if (
+            href.startswith(dept_path + "/")
+            and not any(slug in href.lower() for slug in _BOILERPLATE_SLUGS)
+        ):
+            full = BASE_URL + href
+            if full not in seen:
+                seen.add(full)
+                links.append(full)
+    return links
 
 
 def get_external_links(seed_url: str, base_url: str, link_filter, max_pages: int) -> list[str]:
@@ -356,13 +409,34 @@ def main():
             pages.append(main_page)
             save_cache()
 
+        scraped_urls = {p["url"] for p in pages}
         for i, url in enumerate(dept_links, 1):
             print(f"  [{i}/{len(dept_links)}] {url}")
-            page = scrape_page(url)
-            if page:
-                pages.append(page)
-                save_cache()
+            if url not in scraped_urls:
+                page = scrape_page(url)
+                if page:
+                    pages.append(page)
+                    scraped_urls.add(url)
+                    save_cache()
             time.sleep(REQUEST_DELAY)
+
+            # Level 2: scrape sub-pages found on this department page
+            sublinks = get_chicago_sublinks(url)
+            time.sleep(REQUEST_DELAY)
+            sub_scraped = 0
+            for suburl in sublinks:
+                if sub_scraped >= CHICAGO_L2_MAX_PER_DEPT:
+                    break
+                if suburl in scraped_urls:
+                    continue
+                print(f"    [L2] {suburl}")
+                subpage = scrape_page(suburl)
+                if subpage:
+                    pages.append(subpage)
+                    scraped_urls.add(suburl)
+                    save_cache()
+                sub_scraped += 1
+                time.sleep(REQUEST_DELAY)
 
         print(f"\n  chicago.gov: {len(pages)} pages scraped — cache saved to {PAGES_CACHE}\n")
 
@@ -379,19 +453,44 @@ def main():
             print(f"  Skipping {source['name']} — already in cache\n")
             continue
 
-        print(f"Step 2/4 — Scraping {source['name']} ({source['seed_url']})...")
+        print(f"Step 2/4 — Scraping {source['name']} ({source['seed_url']}) — level 1...")
         ext_links = get_external_links(
             source["seed_url"], source["base_url"],
             source["link_filter"], EXTRA_SOURCE_MAX_PAGES,
         )
-        print(f"  Discovered {len(ext_links)} links")
+        print(f"  Discovered {len(ext_links)} level-1 links")
+        l1_scraped = set()
         for j, url in enumerate(ext_links, 1):
             print(f"  [{j}/{len(ext_links)}] {url}")
             page = scrape_page(url)
             if page:
                 pages.append(page)
                 save_cache()
+            l1_scraped.add(url)
             time.sleep(REQUEST_DELAY)
+
+        # Level 2: discover and scrape sub-pages found on each level-1 page
+        print(f"  Scraping {source['name']} — level 2...")
+        seen_l2  = set(ext_links)
+        l2_count = 0
+        for l1_url in list(l1_scraped):
+            if l2_count >= EXTRA_L2_MAX_TOTAL:
+                break
+            l2_links = get_external_links(
+                l1_url, source["base_url"], source["link_filter"], EXTRA_L2_MAX_TOTAL + 1,
+            )
+            time.sleep(REQUEST_DELAY)
+            for url in l2_links:
+                if url in seen_l2 or l2_count >= EXTRA_L2_MAX_TOTAL:
+                    continue
+                seen_l2.add(url)
+                print(f"  [L2 {l2_count + 1}/{EXTRA_L2_MAX_TOTAL}] {url}")
+                page = scrape_page(url)
+                if page:
+                    pages.append(page)
+                    save_cache()
+                l2_count += 1
+                time.sleep(REQUEST_DELAY)
         print(f"  {source['name']}: done\n")
 
     print(f"  Total pages in index: {len(pages)}\n")

@@ -1532,45 +1532,75 @@ def chat():
             raise
         app.logger.info("[chat] +%s first Claude call done (stop_reason=%s)", elapsed(), message.stop_reason)
 
-        # Handle tool use
+        # Handle tool use — Claude may return multiple parallel tool_use blocks
         if message.stop_reason == "tool_use":
-            tool_use_block = next(b for b in message.content if b.type == "tool_use")
-            tool_input     = tool_use_block.input
-            dataset  = tool_input.get("dataset", "")
-            where    = tool_input.get("where") or ""
-            select   = tool_input.get("select") or "count(*) AS total"
-            group    = tool_input.get('group') or ""
+            tool_use_blocks = [b for b in message.content if b.type == "tool_use"]
 
-            if where:
-                # SODA uses single quotes for string literals; double quotes denote column
-                # identifiers, causing a type-mismatch error when Claude generates date
-                # values like "2025-01-01" instead of '2025-01-01'.
-                normalized = re.sub(r'"(\d{4}-\d{2}-\d{2}(?:T[^"]*)?)"', r"'\1'", where)
-                # Strip any trailing AND/OR that Claude may append (e.g. incomplete clauses).
-                normalized = re.sub(r'\s+(?:AND|OR)\s*$', '', normalized, flags=re.IGNORECASE).strip()
-                if normalized != where:
-                    app.logger.info("[tool_use] normalized where: %r → %r", where, normalized)
-                    where = normalized
+            tool_results_content = []
+            fallback_needed = False
+            fallback_error = ""
+            last_good_meta = None
 
-            if where and COMMUNITY_AREA_BY_NAME:
-                translated = _translate_community_areas_in_where(where)
-                if translated != where:
-                    app.logger.info("[tool_use] translated where: %r → %r", where, translated)
-                    where = translated
+            for tool_use_block in tool_use_blocks:
+                tool_input = tool_use_block.input
+                dataset = tool_input.get("dataset", "")
+                where   = tool_input.get("where") or ""
+                select  = tool_input.get("select") or "count(*) AS total"
+                group   = tool_input.get("group") or ""
 
-            app.logger.info("[tool_use] dataset=%s  where=%r  select=%r group=%r", dataset, where, select, group)
+                if where:
+                    # SODA uses single quotes for string literals; double quotes denote column
+                    # identifiers, causing a type-mismatch error when Claude generates date
+                    # values like "2025-01-01" instead of '2025-01-01'.
+                    normalized = re.sub(r'"(\d{4}-\d{2}-\d{2}(?:T[^"]*)?)"', r"'\1'", where)
+                    # Strip any trailing AND/OR that Claude may append (e.g. incomplete clauses).
+                    normalized = re.sub(r'\s+(?:AND|OR)\s*$', '', normalized, flags=re.IGNORECASE).strip()
+                    if normalized != where:
+                        app.logger.info("[tool_use] normalized where: %r → %r", where, normalized)
+                        where = normalized
 
-            tool_result = query_socrata(dataset=dataset, where=where or None, select=select, group=group)
-            records = len(tool_result) if isinstance(tool_result, list) else None
-            app.logger.info("[tool_result] dataset=%s  records=%s  result=%s",
-                            dataset, records, str(tool_result)[:300])
+                if where and COMMUNITY_AREA_BY_NAME:
+                    translated = _translate_community_areas_in_where(where)
+                    if translated != where:
+                        app.logger.info("[tool_use] translated where: %r → %r", where, translated)
+                        where = translated
 
-            if isinstance(tool_result, dict) and "error" in tool_result:
-                error_msg = tool_result.get("error", "")
-                if "400" in error_msg:
-                    app.logger.warning("[tool_result] Socrata HTTP 400 — returning error to user: %s", error_msg)
-                    return jsonify({"type": "error", "message": "Sorry, the data query failed. Please try again."})
-                app.logger.info("[tool_result] Socrata error — falling back to RAG: %s", error_msg)
+                app.logger.info("[tool_use] dataset=%s  where=%r  select=%r group=%r", dataset, where, select, group)
+
+                tool_result = query_socrata(dataset=dataset, where=where or None, select=select, group=group)
+                records = len(tool_result) if isinstance(tool_result, list) else None
+                app.logger.info("[tool_result] dataset=%s  records=%s  result=%s",
+                                dataset, records, str(tool_result)[:300])
+
+                if isinstance(tool_result, dict) and "error" in tool_result:
+                    error_msg = tool_result.get("error", "")
+                    if "400" in error_msg:
+                        app.logger.warning("[tool_result] Socrata HTTP 400 — returning error to user: %s", error_msg)
+                        return jsonify({"type": "error", "message": "Sorry, the data query failed. Please try again."})
+                    app.logger.info("[tool_result] Socrata error — falling back to RAG: %s", error_msg)
+                    fallback_needed = True
+                    fallback_error = error_msg
+                    # Still need a tool_result entry for this block to satisfy API requirements
+                    tool_results_content.append({
+                        "type":        "tool_result",
+                        "tool_use_id": tool_use_block.id,
+                        "content":     json.dumps(tool_result),
+                    })
+                else:
+                    last_good_meta = {
+                        "dataset":          dataset,
+                        "where":            where,
+                        "select":           select,
+                        "group":            group,
+                        "records_returned": records or 0,
+                    }
+                    tool_results_content.append({
+                        "type":        "tool_result",
+                        "tool_use_id": tool_use_block.id,
+                        "content":     json.dumps(tool_result),
+                    })
+
+            if fallback_needed:
                 try:
                     message = _claude_create(
                         model      = CLAUDE_PRIMARY,
@@ -1586,21 +1616,12 @@ def chat():
                     raise
                 app.logger.info("[chat] +%s fallback RAG call done", elapsed())
             else:
-                data_query_meta = {
-                    "dataset":          dataset,
-                    "where":            where,
-                    "select":           select,
-                    "group":            group,
-                    "records_returned": records or 0,
-                }
+                if last_good_meta:
+                    data_query_meta = last_good_meta
                 messages.append({"role": "assistant", "content": message.content})
                 messages.append({
-                    "role": "user",
-                    "content": [{
-                        "type":        "tool_result",
-                        "tool_use_id": tool_use_block.id,
-                        "content":     json.dumps(tool_result),
-                    }],
+                    "role":    "user",
+                    "content": tool_results_content,
                 })
                 try:
                     message = _claude_create(
