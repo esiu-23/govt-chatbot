@@ -241,6 +241,15 @@ INTENT_TOOL = {
                     "False if a specific area or neighborhood is named."
                 ),
             },
+            "group_by": {
+                "type": "string",
+                "description": (
+                    "The column to group/break down results by, if the user asks for a breakdown "
+                    "(e.g. 'by community area', 'broken down by ward', 'per neighborhood'). "
+                    "Use the exact Socrata column name, e.g. 'community_area' or 'ward'. "
+                    "Empty string if no grouping is requested."
+                ),
+            },
         },
         "required": ["is_data_query", "has_time", "has_location", "is_citywide"],
     },
@@ -599,6 +608,15 @@ INTENT_TOOL = {
                 "description": (
                     "True if the user wants data for all of Chicago with no specific neighborhood. "
                     "False if a specific area or neighborhood is named."
+                ),
+            },
+            "group_by": {
+                "type": "string",
+                "description": (
+                    "The column to group/break down results by, if the user asks for a breakdown "
+                    "(e.g. 'by community area', 'broken down by ward', 'per neighborhood'). "
+                    "Use the exact Socrata column name, e.g. 'community_area' or 'ward'. "
+                    "Empty string if no grouping is requested."
                 ),
             },
         },
@@ -982,7 +1000,7 @@ def _parse_intent(question: str, history: list = None) -> dict:
 
     Returns a dict with keys:
       is_data_query, dataset, has_time, time_phrase,
-      has_location, location_phrase, is_citywide
+      has_location, location_phrase, is_citywide, group_by
     """
     messages = []
     if history:
@@ -1288,11 +1306,16 @@ def chat():
         if pending_intent and clarify_count > 0:
             intent = pending_intent
             latest_intent = _parse_intent(question, history)
-            # Finds pairs that exist in one but not both (Symmetric Difference) and update pending_intent with the latest info
-            diff = intent.items() ^ latest_intent.items()
-            updated_intent = intent
-            for key, value in diff.items():
-                updated_intent['key'] = latest_intent['value']
+            # Merge rules:
+            # 1. If original had a real value and latest has nothing new → keep original.
+            # 2. Otherwise (original was default, OR latest has an explicit new value) → take latest.
+            _DEFAULTS = (False, "", None)
+            updated_intent = {**intent}
+            for key, value in latest_intent.items():
+                original_value = intent.get(key)
+                if original_value not in _DEFAULTS and value in _DEFAULTS:
+                    continue  # preserve original non-default when clarification is silent on this field
+                updated_intent[key] = value
 
             app.logger.info("[chat] +%s updated pending_intent: %s", elapsed(), updated_intent)
         else:
@@ -1453,6 +1476,12 @@ def chat():
                 f"\n\n[SCHEMA NOTE: The {dataset} dataset has these columns: {col_list}. "
                 f"Use ONLY these column names in your WHERE and SELECT clauses.]"
             )
+            group_by_col = intent.get("group_by", "")
+            if group_by_col:
+                user_content += (
+                    f"\n\n[GROUP BY NOTE: The user wants results broken down by '{group_by_col}'. "
+                    f"Set select to '{group_by_col}, count(*) AS total' and group to '{group_by_col}'.]"
+                )
             app.logger.info(f'[socrata_instructions] {user_content}')
         # 3. Build messages
         user_content = (
@@ -1481,6 +1510,12 @@ def chat():
                 f"\n\n[SCHEMA NOTE: The {dataset} dataset has these columns: {col_list}. "
                 f"Use ONLY these column names in your WHERE and SELECT clauses.]"
             )
+            group_by_col = intent.get("group_by", "")
+            if group_by_col:
+                user_content += (
+                    f"\n\n[GROUP BY NOTE: The user wants results broken down by '{group_by_col}'. "
+                    f"Set select to '{group_by_col}, count(*) AS total' and group to '{group_by_col}'.]"
+                )
             app.logger.info(f'[socrata_instructions] {user_content}')
 
         messages = []
