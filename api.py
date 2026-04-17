@@ -399,14 +399,19 @@ def _build_socrata_tools() -> list:
                     "select": {
                         "type": "string",
                         "description": (
-                            "SODA $select clause, e.g. \"count(*) AS total\" "
-                            "or \"primary_type, count(*) AS total"
+                            "SODA $select clause.\n"
+                            "HOW MANY questions (count, total, number of): use \"count(*) AS total\".\n"
+                            "BREAKDOWN questions (by type, per ward, etc.): use \"<group_col>, count(*) AS total\".\n"
+                            "LIST/NAME questions (which businesses, show me names): use specific columns, "
+                            "e.g. \"legal_name, doing_business_as_name, license_description, license_approved_for_issuance\".\n"
+                            "Default to \"count(*) AS total\" when the intent is ambiguous."
                         ),
                     },
                     "group": {
                         "type": "string",
                         "description": (
-                            "SODA $group clause, e.g., \"GROUP BY primary_type\""
+                            "Column name to group by, e.g. \"primary_type\" or \"license_description\". "
+                            "Do NOT include the words 'GROUP BY' — just the column name."
                         )
                     }
                 },
@@ -768,14 +773,19 @@ def _build_socrata_tools() -> list:
                     "select": {
                         "type": "string",
                         "description": (
-                            "SODA $select clause, e.g. \"count(*) AS total\" "
-                            "or \"primary_type, count(*) AS total"
+                            "SODA $select clause.\n"
+                            "HOW MANY questions (count, total, number of): use \"count(*) AS total\".\n"
+                            "BREAKDOWN questions (by type, per ward, etc.): use \"<group_col>, count(*) AS total\".\n"
+                            "LIST/NAME questions (which businesses, show me names): use specific columns, "
+                            "e.g. \"legal_name, doing_business_as_name, license_description, license_approved_for_issuance\".\n"
+                            "Default to \"count(*) AS total\" when the intent is ambiguous."
                         ),
                     },
                     "group": {
                         "type": "string",
                         "description": (
-                            "SODA $group clause, e.g., \"GROUP BY primary_type\""
+                            "Column name to group by, e.g. \"primary_type\" or \"license_description\". "
+                            "Do NOT include the words 'GROUP BY' — just the column name."
                         )
                     }
                 },
@@ -1638,6 +1648,25 @@ def chat():
                 where   = tool_input.get("where") or ""
                 select  = tool_input.get("select") or "count(*) AS total"
                 group   = tool_input.get("group") or ""
+                # Strip any "GROUP BY" prefix Claude may have included despite instructions.
+                group = re.sub(r'(?i)^\s*group\s+by\s+', '', group).strip()
+
+                # Coalesce the group column so NULL values are counted under 'Unknown'
+                # rather than silently dropped by Socrata's GROUP BY.
+                if group and not group.startswith("coalesce("):
+                    coalesced = f"coalesce({group}, 'Unknown')"
+                    # Replace the bare group column in the select clause with the coalesced
+                    # version aliased back to the original name, so Claude sees a clean label.
+                    parts = [p.strip() for p in select.split(',')]
+                    new_parts = []
+                    for part in parts:
+                        if re.match(r'^' + re.escape(group) + r'\s*$', part, re.IGNORECASE):
+                            new_parts.append(f"coalesce({group}, 'Unknown') AS {group}")
+                        else:
+                            new_parts.append(part)
+                    select = ', '.join(new_parts)
+                    group = coalesced
+                    app.logger.info("[tool_use] coalesced group for NULL inclusion: %s", group)
 
                 if where:
                     # SODA uses single quotes for string literals; double quotes denote column
@@ -1656,10 +1685,47 @@ def chat():
                         app.logger.info("[tool_use] translated where: %r → %r", where, translated)
                         where = translated
 
-                app.logger.info("[tool_use] dataset=%s  where=%r  select=%r group=%r", dataset, where, select, group)
+                # Determine row limit by query shape:
+                #   pure count (no GROUP BY) → 1 row is the full answer
+                #   breakdown (count + GROUP BY) → up to 50 groups
+                #   row-level listing (no count) → fetch accurate total separately, then top 50
+                is_count_query = "count(" in select.lower()
+                is_listing_query = not is_count_query and not group
+                is_group_query = bool(group)
+                # pure count (no GROUP BY) → 1 row is the full answer
+                # breakdown (count + GROUP BY) → up to 200 groups (raised from 50 to avoid truncation)
+                # row-level listing → fetch accurate total separately, then top 50
+                row_limit = 1 if (is_count_query and not group) else (200 if is_group_query else 50)
 
-                tool_result = query_socrata(dataset=dataset, where=where or None, select=select, group=group)
-                records = len(tool_result) if isinstance(tool_result, list) else None
+                app.logger.info("[tool_use] dataset=%s  where=%r  select=%r group=%r  limit=%d", dataset, where, select, group, row_limit)
+
+                tool_result = query_socrata(dataset=dataset, where=where or None, select=select, group=group, limit=row_limit)
+
+                # For listing queries, also fetch the accurate total count so Claude
+                # can report the true number even though only 50 rows are shown.
+                if is_listing_query and isinstance(tool_result, list):
+                    count_result = query_socrata(dataset=dataset, where=where or None, select="count(*) AS total", limit=1)
+                    total_count = None
+                    if isinstance(count_result, list) and count_result:
+                        try:
+                            total_count = int(count_result[0].get("total", 0))
+                        except (ValueError, TypeError):
+                            pass
+                    if total_count is not None:
+                        tool_result = {
+                            "total_count": total_count,
+                            "showing": len(tool_result),
+                            "note": "Only the first 50 results are shown. This tool is still in development.",
+                            "results": tool_result,
+                        }
+                        app.logger.info("[tool_result] listing query: total=%d showing=%d", total_count, len(tool_result["results"]))
+
+                if isinstance(tool_result, dict) and "results" in tool_result:
+                    records = len(tool_result["results"])
+                elif isinstance(tool_result, list):
+                    records = len(tool_result)
+                else:
+                    records = None
                 app.logger.info("[tool_result] dataset=%s  records=%s  result=%s",
                                 dataset, records, str(tool_result)[:300])
 
