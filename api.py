@@ -222,6 +222,22 @@ INTENT_TOOL = {
                 "type": "string",
                 "description": "The time period as the user stated it, e.g. '2024', 'last year'. Empty string if none.",
             },
+            "date_column": {
+                "type": "string",
+                "description": (
+                    "If the user explicitly names a specific date column to use for filtering "
+                    "(e.g. 'use license_term_expiration_date' or 'by issue date'), capture the "
+                    "exact column name here. Empty string if the user did not specify a column."
+                ),
+            },
+            "location_column": {
+                "type": "string",
+                "description": (
+                    "If the user explicitly names a specific location column to filter on "
+                    "(e.g. 'by ward' or 'use zip_code'), capture the exact column name here. "
+                    "Empty string if the user did not specify a column."
+                ),
+            },
             "has_location": {
                 "type": "boolean",
                 "description": (
@@ -317,6 +333,27 @@ def _check_location_in_query(question: str) -> dict:
 
     return {"status": "none"}
 
+
+def _extract_columns_from_where(where: str) -> dict:
+    """Extract the date and location columns actually used in a SoQL WHERE clause.
+
+    Written back into the intent after each successful query so follow-up turns
+    reuse the same columns automatically.
+    """
+    result = {}
+    if not where:
+        return result
+    date_match = re.search(
+        r'\b([A-Za-z_]\w*)\s*(?:>=|<=|>|<)\s*[\'"](\d{4}-\d{2}-\d{2})', where
+    )
+    if date_match:
+        result["date_column"] = date_match.group(1)
+    loc_match = re.search(r'\b([A-Za-z_]\w*)\s*=\s*[\'"](\d+)[\'"]', where)
+    if loc_match:
+        result["location_column"] = loc_match.group(1)
+    return result
+
+
 def query_socrata(dataset: str, where: str = None, select: str = "count(*) AS total", group: str=None, limit: int = 10) -> dict:
     dataset_id = DATASETS.get(dataset)
     app.logger.info(f'[socrata] {dataset}')
@@ -330,6 +367,13 @@ def query_socrata(dataset: str, where: str = None, select: str = "count(*) AS to
     if SOCRATA_APP_TOKEN:
         params["$$app_token"] = SOCRATA_APP_TOKEN
     url = f"{SOCRATA_BASE}/{dataset_id}.json?" + urllib.parse.urlencode(params)
+    _sql = f"SELECT {select} FROM {dataset}"
+    if where:
+        _sql += f" WHERE {where}"
+    if group:
+        _sql += f" GROUP BY {group}"
+    _sql += f" LIMIT {limit}"
+    app.logger.info("[socrata] QUERY: %s", _sql)
     for attempt in range(2):
         try:
             with urllib.request.urlopen(url, timeout=30, context=_SSL_CTX) as resp:
@@ -599,6 +643,22 @@ INTENT_TOOL = {
                 "type": "string",
                 "description": "The time period as the user stated it, e.g. '2024', 'last year'. Empty string if none.",
             },
+            "date_column": {
+                "type": "string",
+                "description": (
+                    "If the user explicitly names a specific date column to use for filtering "
+                    "(e.g. 'use license_term_expiration_date' or 'by issue date'), capture the "
+                    "exact column name here. Empty string if the user did not specify a column."
+                ),
+            },
+            "location_column": {
+                "type": "string",
+                "description": (
+                    "If the user explicitly names a specific location column to filter on "
+                    "(e.g. 'by ward' or 'use zip_code'), capture the exact column name here. "
+                    "Empty string if the user did not specify a column."
+                ),
+            },
             "has_location": {
                 "type": "boolean",
                 "description": (
@@ -694,6 +754,27 @@ def _check_location_in_query(question: str) -> dict:
 
     return {"status": "none"}
 
+
+def _extract_columns_from_where(where: str) -> dict:
+    """Extract the date and location columns actually used in a SoQL WHERE clause.
+
+    Written back into the intent after each successful query so follow-up turns
+    reuse the same columns automatically.
+    """
+    result = {}
+    if not where:
+        return result
+    date_match = re.search(
+        r'\b([A-Za-z_]\w*)\s*(?:>=|<=|>|<)\s*[\'"](\d{4}-\d{2}-\d{2})', where
+    )
+    if date_match:
+        result["date_column"] = date_match.group(1)
+    loc_match = re.search(r'\b([A-Za-z_]\w*)\s*=\s*[\'"](\d+)[\'"]', where)
+    if loc_match:
+        result["location_column"] = loc_match.group(1)
+    return result
+
+
 def query_socrata(dataset: str, where: str = None, select: str = "count(*) AS total", group: str=None, limit: int = 10) -> dict:
     dataset_id = DATASETS.get(dataset)
     app.logger.info(f'[socrata] {dataset}')
@@ -707,6 +788,13 @@ def query_socrata(dataset: str, where: str = None, select: str = "count(*) AS to
     if SOCRATA_APP_TOKEN:
         params["$$app_token"] = SOCRATA_APP_TOKEN
     url = f"{SOCRATA_BASE}/{dataset_id}.json?" + urllib.parse.urlencode(params)
+    _sql = f"SELECT {select} FROM {dataset}"
+    if where:
+        _sql += f" WHERE {where}"
+    if group:
+        _sql += f" GROUP BY {group}"
+    _sql += f" LIMIT {limit}"
+    app.logger.info("[socrata] QUERY: %s", _sql)
     for attempt in range(2):
         try:
             with urllib.request.urlopen(url, timeout=60, context=_SSL_CTX) as resp:
@@ -1380,6 +1468,9 @@ def chat():
         #    b) No pending_intent, but we have a stored intent for this session
         #       (Claude asked its own clarification without pending_intent)
         #    c) Fresh parse with no prior context
+        # Retrieved once here so both branches can use _last_query for consistency notes.
+        _prev_stored = get_last_intent(session_id)
+
         if pending_intent and clarify_count > 0:
             latest_intent = _parse_intent(question, history)
             intent = _merge_intents(pending_intent, latest_intent)
@@ -1412,10 +1503,9 @@ def chat():
 
             # Merge with stored intent when this is a follow-up data query on the
             # same dataset (recovers location/context lost across chat clarifications).
-            if intent.get("is_data_query"):
-                stored = get_last_intent(session_id)
-                if stored and stored.get("dataset") == intent.get("dataset"):
-                    intent = _merge_intents(stored, intent)
+            if intent.get("is_data_query") and _prev_stored:
+                if _prev_stored.get("dataset") == intent.get("dataset"):
+                    intent = _merge_intents(_prev_stored, intent)
                     app.logger.info("[chat] +%s merged with stored intent: %s", elapsed(), intent)
 
         
@@ -1567,6 +1657,13 @@ def chat():
                 f"\n\n[LOCATION NOTE: '{area_name}' = community_area {resolved_area_num}. "
                 f"Use community_area='{resolved_area_num}' (text, not bare int) in any Socrata WHERE clause.]"
             )
+        date_col_override = intent.get("date_column", "")
+        if date_col_override:
+            user_content += (
+                f"\n\n[DATE COLUMN NOTE: The user has specified to use '{date_col_override}' for date filtering. "
+                f"Use this column in your WHERE clause instead of any other date column. "
+                f"Tell the user which column you are using at the start of your answer.]"
+            )
         if clarify_count >= 1:
             user_content += (
                 "\n\nNOTE: You have already asked 1 clarifying question in a row. "
@@ -1588,7 +1685,24 @@ def chat():
                     f"\n\n[GROUP BY NOTE: The user wants results broken down by '{group_by_col}'. "
                     f"Set select to '{group_by_col}, count(*) AS total' and group to '{group_by_col}'.]"
                 )
-            app.logger.info(f'[socrata_instructions] {user_content}')
+            _prev_query = _prev_stored.get("_last_query") if _prev_stored else None
+            if _prev_query and _prev_query.get("dataset") == dataset:
+                _pq = _prev_query
+                _prev_sql = f"SELECT {_pq['select']} FROM {_pq['dataset']}"
+                if _pq.get("where"):
+                    _prev_sql += f" WHERE {_pq['where']}"
+                if _pq.get("group"):
+                    _prev_sql += f" GROUP BY {_pq['group']}"
+                user_content += (
+                    f"\n\n[PREVIOUS QUERY: {_prev_sql}]"
+                    "\n[QUERY CONSISTENCY: Base your new query on the PREVIOUS QUERY above. "
+                    "Only change the parts the user explicitly updated (e.g. new date range or location). "
+                    "Reuse the same column names for the same concepts. "
+                    "If you must use a different column than the previous query used "
+                    "(e.g. a different date column), tell the user which column you are using and why, "
+                    "then proceed with the answer.]"
+                )
+                app.logger.info("[chat] injected previous query for consistency: %s", _prev_sql)
             app.logger.info(f'[socrata_instructions] {user_content}')
 
         messages = []
@@ -1758,6 +1872,13 @@ def chat():
                         "group":            group,
                         "records_returned": records or 0,
                     }
+                    # Write observed columns back into intent so future turns
+                    # reuse the same column names without the user repeating them.
+                    extracted = _extract_columns_from_where(where)
+                    for col_key, col_val in extracted.items():
+                        if not intent.get(col_key):  # don't overwrite user-explicit override
+                            intent[col_key] = col_val
+                    app.logger.info("[tool_use] columns extracted from WHERE: %s", extracted)
                     tool_results_content.append({
                         "type":        "tool_result",
                         "tool_use_id": tool_use_block.id,
@@ -1878,8 +1999,10 @@ def chat():
             {"role": "user", "content": question},
             assistant_turn,
         )
-        # Final answer delivered — clear stored intent so it doesn't bleed into a new question
-        save_last_intent(session_id, None)
+        # Save enriched intent (with observed columns + last query) so follow-up turns
+        # get column consistency via _merge_intents without the user repeating themselves.
+        intent_to_save = {**intent, "_last_query": data_query_meta} if data_query_meta else None
+        save_last_intent(session_id, intent_to_save)
         app.logger.info("[chat] +%s done", elapsed())
 
         if data_query_meta:
