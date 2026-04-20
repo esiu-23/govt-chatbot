@@ -393,7 +393,10 @@ def _build_socrata_tools() -> list:
                             "  year = '2025' AND primary_type = 'THEFT'\n"
                             f"IMPORTANT for crime/permit datasets: {community_area_note}\n"
                             "Crime date field is 'date'. Use date range for year filtering.\n"
-                            "primary_type values are ALL CAPS strings like 'THEFT', 'ASSAULT', 'HOMICIDE'."
+                            "primary_type values are ALL CAPS strings like 'THEFT', 'ASSAULT', 'HOMICIDE'.\n"
+                            "MONTH-END RULE: Always use the first day of the NEXT month as the exclusive "
+                            "upper bound for a month range. April 2026 = >= '2026-04-01' AND < '2026-05-01'. "
+                            "Never use the last day of the month (e.g. < '2026-04-30') — it excludes April 30."
                         ),
                     },
                     "select": {
@@ -767,7 +770,10 @@ def _build_socrata_tools() -> list:
                             "  year = '2025' AND primary_type = 'THEFT'\n"
                             f"IMPORTANT for crime/permit datasets: {community_area_note}\n"
                             "Crime date field is 'date'. Use date range for year filtering.\n"
-                            "primary_type values are ALL CAPS strings like 'THEFT', 'ASSAULT', 'HOMICIDE'."
+                            "primary_type values are ALL CAPS strings like 'THEFT', 'ASSAULT', 'HOMICIDE'.\n"
+                            "MONTH-END RULE: Always use the first day of the NEXT month as the exclusive "
+                            "upper bound for a month range. April 2026 = >= '2026-04-01' AND < '2026-05-01'. "
+                            "Never use the last day of the month (e.g. < '2026-04-30') — it excludes April 30."
                         ),
                     },
                     "select": {
@@ -1211,6 +1217,10 @@ SYSTEM_PROMPT_DATA = (
 DISCLAIMER_TEMPLATE = (
     "Information sourced from city websites as of {date}. "
     "Content may have changed — visit the sources directly to confirm."
+)
+
+OPEN_DATA_DISCLAIMER = (
+    "Data is queried live and reflects what is currently available on the Chicago Open Data Portal."
 )
 
 # ---------------------------------------------------------------------------
@@ -1888,7 +1898,7 @@ def chat():
             "answer"     : answer_text,
             "sources"    : filtered_sources,
             "scrape_date": SCRAPE_DATE,
-            "disclaimer" : DISCLAIMER_TEMPLATE.format(date=SCRAPE_DATE),
+            "disclaimer" : OPEN_DATA_DISCLAIMER if data_query_meta else DISCLAIMER_TEMPLATE.format(date=SCRAPE_DATE),
         }
         if data_query_meta:
             resp_body["data_query"] = data_query_meta

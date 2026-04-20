@@ -1027,16 +1027,45 @@
   }
 
   function linkify(text) {
-    // Escape HTML, then wrap bare URLs in anchor tags
+    // Escape HTML first
     const escaped = text
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
-    return escaped.replace(
-      /https?:\/\/[^\s<>"]+/g,
-      url => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`
-    );
+
+    // Process block-level elements (lists), then inline markdown
+    const lines = escaped.split("\n");
+    const output = [];
+    let inUl = false;
+    let inOl = false;
+
+    for (const raw of lines) {
+      const ulMatch = raw.match(/^[-*]\s+(.*)/);
+      const olMatch = raw.match(/^\d+\.\s+(.*)/);
+
+      if (ulMatch) {
+        if (!inUl) { if (inOl) { output.push("</ol>"); inOl = false; } output.push("<ul>"); inUl = true; }
+        output.push(`<li>${inlineFormat(ulMatch[1])}</li>`);
+      } else if (olMatch) {
+        if (!inOl) { if (inUl) { output.push("</ul>"); inUl = false; } output.push("<ol>"); inOl = true; }
+        output.push(`<li>${inlineFormat(olMatch[1])}</li>`);
+      } else {
+        if (inUl) { output.push("</ul>"); inUl = false; }
+        if (inOl) { output.push("</ol>"); inOl = false; }
+        const trimmed = raw.trim();
+        if (trimmed) output.push(`<p>${inlineFormat(trimmed)}</p>`);
+      }
+    }
+    if (inUl) output.push("</ul>");
+    if (inOl) output.push("</ol>");
+    return output.join("");
+  }
+
+  function inlineFormat(text) {
+    return text
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/https?:\/\/[^\s<>"]+/g, url => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
   }
 
   function appendBotMessage(answer, sources, disclaimer, type) {
