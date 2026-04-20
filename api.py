@@ -1383,6 +1383,21 @@ def chat():
         if pending_intent and clarify_count > 0:
             latest_intent = _parse_intent(question, history)
             intent = _merge_intents(pending_intent, latest_intent)
+            # If we were clarifying location, validate the answer directly against known
+            # community areas so a short reply like "In Near West Side" always resolves
+            # even if _parse_intent fails to extract has_location from a short answer.
+            if not pending_intent.get("has_location"):
+                loc_check = _check_location_in_query(question)
+                if loc_check["status"] == "valid":
+                    intent["has_location"] = True
+                    intent["location_phrase"] = loc_check["name"]
+                    intent["is_citywide"] = False
+                    app.logger.info("[chat] location extracted directly from clarification answer: %s", loc_check)
+                elif loc_check["status"] == "citywide":
+                    intent["has_location"] = True
+                    intent["is_citywide"] = True
+                    intent["location_phrase"] = "all of Chicago"
+                    app.logger.info("[chat] citywide detected from clarification answer")
             app.logger.info("[chat] +%s merged pending_intent: %s", elapsed(), intent)
         else:
             app.logger.info("[chat] +%s parsing intent", elapsed())
