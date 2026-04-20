@@ -1541,10 +1541,25 @@ def chat():
         context = "\n\n---\n\n".join(context_parts)
 
         # 3. Build messages
+        # When answering a clarification, reconstruct the full question so Claude has
+        # the original intent (e.g. "Mar vs Apr 2026") plus the new detail ("Near West Side").
+        if pending_intent and clarify_count > 0:
+            original_q = next(
+                (t.get("content", "") for t in history if t.get("role") == "user"),
+                question,
+            )
+            effective_question = (
+                f"{original_q}\n[User provided: {question}]"
+                if original_q and original_q != question
+                else question
+            )
+        else:
+            effective_question = question
+
         user_content = (
             f"Respond in {lang_name}.\n\n"
             f"Context from chicago.gov:\n\n{context}\n\n"
-            f"Question: {question}"
+            f"Question: {effective_question}"
         )
         if resolved_area_num is not None:
             area_name = COMMUNITY_AREA_BY_NUM[resolved_area_num]
@@ -1574,39 +1589,6 @@ def chat():
                     f"Set select to '{group_by_col}, count(*) AS total' and group to '{group_by_col}'.]"
                 )
             app.logger.info(f'[socrata_instructions] {user_content}')
-        # 3. Build messages
-        user_content = (
-            f"Respond in {lang_name}.\n\n"
-            f"Context from chicago.gov:\n\n{context}\n\n"
-            f"Question: {question}"
-        )
-        if resolved_area_num is not None:
-            area_name = COMMUNITY_AREA_BY_NUM[resolved_area_num]
-            user_content += (
-                f"\n\n[LOCATION NOTE: '{area_name}' = community_area {resolved_area_num}. "
-                f"Use community_area='{resolved_area_num}' (text, not bare int) in any Socrata WHERE clause.]"
-            )
-        if clarify_count >= 1:
-            user_content += (
-                "\n\nNOTE: You have already asked 1 clarifying question in a row. "
-                "Do NOT ask another clarifying question. "
-                "Answer with what you can from the context above, or say "
-                "'I don't know' and suggest the most relevant links from the context."
-            )
-        if use_data_tool and dataset and dataset in SCHEMA_CACHE:
-            col_list = ", ".join(
-                f"{c['fieldName']} ({c['dataTypeName']})" for c in SCHEMA_CACHE[dataset]
-            )
-            user_content += (
-                f"\n\n[SCHEMA NOTE: The {dataset} dataset has these columns: {col_list}. "
-                f"Use ONLY these column names in your WHERE and SELECT clauses.]"
-            )
-            group_by_col = intent.get("group_by", "")
-            if group_by_col:
-                user_content += (
-                    f"\n\n[GROUP BY NOTE: The user wants results broken down by '{group_by_col}'. "
-                    f"Set select to '{group_by_col}, count(*) AS total' and group to '{group_by_col}'.]"
-                )
             app.logger.info(f'[socrata_instructions] {user_content}')
 
         messages = []
