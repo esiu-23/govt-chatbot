@@ -687,6 +687,19 @@
     .leg-what-link:hover { text-decoration: underline; }
     .leg-empty { color: #718096; font-size: 0.92rem; text-align: center; margin-top: 36px; }
     .leg-loading { color: #718096; font-size: 0.9rem; }
+    .leg-status-routine { color: #718096; font-weight: 600; }
+    .leg-meeting-card {
+      background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #003F87;
+      border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+      cursor: pointer; transition: border-color .15s, box-shadow .15s;
+    }
+    .leg-meeting-card:hover { box-shadow: 0 2px 8px rgba(0,63,135,.12); border-color: #003F87; }
+    .leg-meeting-header { font-weight: 700; font-size: 0.95rem; color: #1a202c; margin-bottom: 4px; }
+    .leg-meeting-body { font-size: 0.83rem; color: #718096; margin-bottom: 6px; }
+    .leg-meeting-summary { font-size: 0.88rem; color: #4a5568; line-height: 1.55; margin-bottom: 6px; }
+    .leg-meeting-counts { font-size: 0.78rem; color: #718096; }
+    .leg-meeting-counts .nr { color: #003F87; font-weight: 600; }
+    .attachment-summary { font-size: 0.8rem; color: #718096; font-style: italic; margin: 4px 0 2px 20px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -818,6 +831,7 @@
 
     <!-- Search view -->
     <div id="leg-search-view">
+      <button class="leg-back-btn" id="leg-results-back-btn" style="display:none" onclick="handleBackBtn()">← Back to meetings</button>
       <p class="leg-prompt">What legislation are you looking for?</p>
       <form id="leg-search-form" onsubmit="searchLegislation(event)">
         <input id="leg-query" type="text" placeholder='e.g. "affordable housing in Pilsen"' autocomplete="off" aria-label="Search legislation" />
@@ -825,14 +839,17 @@
       </form>
       <div id="leg-results-header" style="display:none" aria-live="polite"></div>
       <div id="leg-results" role="list" aria-label="Legislation results"></div>
+      <div id="leg-see-more" style="display:none; text-align:center; margin-top:14px;">
+        <button id="leg-see-more-btn" onclick="loadMoreMeetingMatters()" style="font-size:0.85rem; color:#003F87; background:none; border:1px solid #003F87; padding:6px 16px; border-radius:20px; cursor:pointer;">See more</button>
+      </div>
       <div id="leg-browse-link" style="text-align:center; margin-top:18px; display:none">
-        <a href="https://chicityclerkelms.chicago.gov" target="_blank" rel="noreferrer" style="font-size:0.85rem; color:#003F87; text-decoration:none; border:1px solid #003F87; padding:6px 16px; border-radius:20px; display:inline-block;">Browse all legislation on Chicago City Clerk eLMS →</a>
+        <button onclick="loadAllMeetings()" style="font-size:0.85rem; color:#003F87; background:none; border:1px solid #003F87; padding:6px 16px; border-radius:20px; cursor:pointer;">Browse all meetings →</button>
       </div>
     </div>
 
     <!-- Detail view -->
     <div id="leg-detail-view" style="display:none">
-      <button class="leg-back-btn" onclick="showLegResults()">← Back to results</button>
+      <button class="leg-back-btn" id="leg-back-btn" onclick="showLegResults()">← Back to results</button>
       <div id="leg-detail"></div>
     </div>
 
@@ -1354,30 +1371,84 @@
       layout.style.display   = "none";
       legPanel.style.display = "block";
       document.getElementById("leg-query").focus();
-      if (!legRecentLoaded) loadRecentLegislation();
+      if (!legRecentLoaded) loadRecentMeetings();
     } else {
       layout.style.display   = "";
       legPanel.style.display = "none";
     }
   }
 
+  let legCurrentMeetings = [];
+  let legAllMeetings = [];
+  let legShowingAllMeetings = false;
+  let legAllMeetingsLoaded = false;
+  let legResultSource = "search"; // "search" | "meeting" | "all-meetings"
+  let legCurrentMeetingLabel = "";
+  let legActiveMeetingId = null;
+  let legMeetingOffset = 0;
+  let legMeetingTotal = 0;
+  const LEG_PAGE_SIZE = 10;
+
   function showLegResults() {
     document.getElementById("leg-search-view").style.display = "";
     document.getElementById("leg-detail-view").style.display = "none";
   }
 
-  function loadRecentLegislation() {
+  function showMeetings() {
+    showLegResults();
+    document.getElementById("leg-see-more").style.display = "none";
+    const headerEl = document.getElementById("leg-results-header");
+    if (legShowingAllMeetings) {
+      document.getElementById("leg-results-back-btn").style.display = "block";
+      _setBackBtn("Recent meetings");
+      renderMeetings(legAllMeetings);
+      headerEl.textContent = "All meetings";
+      headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
+      document.getElementById("leg-browse-link").style.display = "none";
+    } else {
+      document.getElementById("leg-results-back-btn").style.display = "none";
+      renderMeetings(legCurrentMeetings);
+      headerEl.textContent = "Recent meetings";
+      headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
+      document.getElementById("leg-browse-link").style.display = legCurrentMeetings.length ? "block" : "none";
+    }
+  }
+
+  function showRecentMeetings() {
+    legShowingAllMeetings = false;
+    showMeetings();
+  }
+
+  function handleBackBtn() {
+    if (legResultSource === "all-meetings") {
+      // Coming back from a meeting's matters to the all-meetings list
+      showMeetings(); // legShowingAllMeetings is still true
+    } else if (legShowingAllMeetings) {
+      // On the all-meetings list, go back to recent meetings
+      showRecentMeetings();
+    } else {
+      // Coming back from a meeting's matters to recent meetings
+      showMeetings();
+    }
+  }
+
+  function _setBackBtn(label) {
+    document.getElementById("leg-results-back-btn").textContent = "← " + label;
+  }
+
+  function loadRecentMeetings() {
     legRecentLoaded = true;
     const resultsEl = document.getElementById("leg-results");
     const headerEl  = document.getElementById("leg-results-header");
-    resultsEl.innerHTML = '<p class="leg-loading">Loading recent legislation…</p>';
-    fetch("/legislation/recent")
+    resultsEl.innerHTML = '<p class="leg-loading">Loading recent meetings…</p>';
+    fetch("/meetings/recent")
       .then(r => r.json())
       .then(data => {
-        legCurrentResults = data.matters || [];
-        headerEl.textContent = "Recently introduced legislation";
+        legCurrentMeetings = data.meetings || [];
+        headerEl.textContent = "Recent meetings";
         headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
-        renderResults(legCurrentResults);
+        renderMeetings(legCurrentMeetings);
+        document.getElementById("leg-browse-link").style.display = legCurrentMeetings.length ? "block" : "none";
       })
       .catch(() => {
         resultsEl.innerHTML = "";
@@ -1385,10 +1456,140 @@
       });
   }
 
+  function loadAllMeetings() {
+    legShowingAllMeetings = true;
+    const resultsEl = document.getElementById("leg-results");
+    const headerEl  = document.getElementById("leg-results-header");
+    document.getElementById("leg-browse-link").style.display = "none";
+    document.getElementById("leg-results-back-btn").style.display = "block";
+    _setBackBtn("Recent meetings");
+    headerEl.textContent = "All meetings";
+    headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
+    if (legAllMeetingsLoaded) {
+      renderMeetings(legAllMeetings);
+      return;
+    }
+    resultsEl.innerHTML = '<p class="leg-loading">Loading all meetings…</p>';
+    fetch("/meetings/all")
+      .then(r => r.json())
+      .then(data => {
+        legAllMeetings = data.meetings || [];
+        legAllMeetingsLoaded = true;
+        renderMeetings(legAllMeetings);
+      })
+      .catch(() => {
+        resultsEl.innerHTML = '<p class="leg-empty">Could not load meetings. Please try again.</p>';
+        headerEl.style.display = "none";
+      });
+  }
+
+  function renderMeetings(meetings) {
+    const resultsEl = document.getElementById("leg-results");
+    if (!meetings.length) {
+      resultsEl.innerHTML = '<p class="leg-empty">No recent meetings found.</p>';
+      return;
+    }
+    resultsEl.innerHTML = meetings.map(m => {
+      const date = m.date
+        ? new Date(m.date).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+        : "";
+      const label = `${escLeg(m.body || "Meeting")} — ${date}`;
+      const counts = m.totalCount
+        ? `<span class="nr">${m.nonRoutineCount} non-routine</span> · ${m.routineCount} routine`
+        : "";
+      const summary = m.summary
+        ? `<div class="leg-meeting-summary">${escLeg(m.summary)}</div>`
+        : "";
+      return `<div class="leg-meeting-card" role="listitem" tabindex="0"
+                   onclick="loadMeetingMatters('${escLeg(m.meetingId)}','${escLeg(label)}')"
+                   onkeydown="if(event.key==='Enter')loadMeetingMatters('${escLeg(m.meetingId)}','${escLeg(label)}')">
+        <div class="leg-meeting-header">${label}</div>
+        ${summary}
+        ${counts ? `<div class="leg-meeting-counts">${counts}</div>` : ""}
+      </div>`;
+    }).join("");
+  }
+
+  function _meetingMattersUrl(meetingId, offset) {
+    return "/meetings/" + encodeURIComponent(meetingId) + "/matters"
+      + "?offset=" + offset + "&limit=" + LEG_PAGE_SIZE;
+  }
+
+  function _updateSeeMore() {
+    const remaining = legMeetingTotal - legMeetingOffset;
+    const seeMoreEl = document.getElementById("leg-see-more");
+    const btn = document.getElementById("leg-see-more-btn");
+    if (remaining > 0) {
+      btn.textContent = "See more (" + remaining + " remaining)";
+      seeMoreEl.style.display = "block";
+    } else {
+      seeMoreEl.style.display = "none";
+    }
+  }
+
+  function loadMeetingMatters(meetingId, label) {
+    legResultSource = legShowingAllMeetings ? "all-meetings" : "meeting";
+    legCurrentMeetingLabel = label;
+    legActiveMeetingId = meetingId;
+    legMeetingOffset = 0;
+    legMeetingTotal = 0;
+    legCurrentResults = [];
+    document.getElementById("leg-results-back-btn").style.display = "block";
+    _setBackBtn(legShowingAllMeetings ? "All meetings" : "Recent meetings");
+    const resultsEl = document.getElementById("leg-results");
+    const headerEl  = document.getElementById("leg-results-header");
+    resultsEl.innerHTML = '<p class="leg-loading">Loading matters…</p>';
+    headerEl.textContent = label;
+    headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
+    document.getElementById("leg-browse-link").style.display = "none";
+    document.getElementById("leg-see-more").style.display = "none";
+    fetch(_meetingMattersUrl(meetingId, 0))
+      .then(r => r.json())
+      .then(data => {
+        legCurrentResults = data.matters || [];
+        legMeetingOffset  = legCurrentResults.length;
+        legMeetingTotal   = data.total || 0;
+        renderResults(legCurrentResults);
+        document.getElementById("leg-browse-link").style.display = "none";
+        _updateSeeMore();
+      })
+      .catch(() => {
+        resultsEl.innerHTML = '<p class="leg-empty">Could not load matters. Please try again.</p>';
+      });
+  }
+
+  function loadMoreMeetingMatters() {
+    if (!legActiveMeetingId) return;
+    const btn = document.getElementById("leg-see-more-btn");
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    fetch(_meetingMattersUrl(legActiveMeetingId, legMeetingOffset))
+      .then(r => r.json())
+      .then(data => {
+        const more = data.matters || [];
+        legCurrentResults = legCurrentResults.concat(more);
+        legMeetingOffset += more.length;
+        legMeetingTotal   = data.total || 0;
+        // Append new cards without re-rendering the whole list
+        const resultsEl = document.getElementById("leg-results");
+        resultsEl.innerHTML = legCurrentResults.map(m => _matterCard(m)).join("");
+        btn.disabled = false;
+        _updateSeeMore();
+      })
+      .catch(() => {
+        btn.disabled = false;
+        btn.textContent = "See more";
+      });
+  }
+
   function searchLegislation(e) {
     e.preventDefault();
     const q = document.getElementById("leg-query").value.trim();
     if (q.length < 2) return;
+    legResultSource = "search";
+    legActiveMeetingId = null;
+    document.getElementById("leg-results-back-btn").style.display = "none";
+    document.getElementById("leg-see-more").style.display = "none";
     const btn       = document.getElementById("leg-search-btn");
     const resultsEl = document.getElementById("leg-results");
     const headerEl  = document.getElementById("leg-results-header");
@@ -1414,6 +1615,49 @@
       });
   }
 
+  function _matterCard(m) {
+    const rawStatus   = m.status || "";
+    const status      = rawStatus.replace(/^\d+-/, "");
+    const rawSub      = (m.substatus || "").replace(/^\d+-/, "");
+    let displayStatus = /^final$/i.test(status) && rawSub ? rawSub : status;
+    let statusClass;
+    if (/in committee/i.test(displayStatus)) {
+      const intro = m.introductionDate ? new Date(m.introductionDate) : null;
+      const daysSince = intro ? (Date.now() - intro.getTime()) / 86400000 : 0;
+      if (daysSince > 180) {
+        displayStatus = "In Committee — Stale";
+        statusClass = "leg-status-stale";
+      } else {
+        displayStatus = "In Committee — Active";
+        statusClass = "leg-status-active";
+      }
+    } else {
+      statusClass = /pass/i.test(displayStatus)            ? "leg-status-passed"
+                  : /active|referred/i.test(displayStatus) ? "leg-status-active"
+                  : "leg-status-other";
+    }
+    const date = m.introductionDate
+      ? new Date(m.introductionDate).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+      : "";
+    const body     = m.controllingBody || "";
+    const subtitle = m.plainLanguageTitle && m.plainLanguageTitle !== m.title
+      ? `<div class="leg-card-subtitle">${escLeg(m.plainLanguageTitle)}</div>`
+      : "";
+    const routineBadge = m.isRoutine
+      ? `<span class="leg-status-routine">Routine</span> · `
+      : "";
+    return `<div class="leg-card" role="listitem" tabindex="0"
+                 onclick="loadMatter('${escLeg(m.recordNumber)}')"
+                 onkeydown="if(event.key==='Enter')loadMatter('${escLeg(m.recordNumber)}')">
+      <div class="leg-card-title">${escLeg(m.title || m.recordNumber)}</div>
+      ${subtitle}
+      <div class="leg-card-meta">
+        ${routineBadge}<span class="${statusClass}">${escLeg(displayStatus)}</span>
+        ${date ? ` · ${date}` : ""}${body ? ` · ${escLeg(body)}` : ""}
+      </div>
+    </div>`;
+  }
+
   function renderResults(matters) {
     const resultsEl  = document.getElementById("leg-results");
     const browseLink = document.getElementById("leg-browse-link");
@@ -1423,52 +1667,20 @@
       return;
     }
     browseLink.style.display = "block";
-    resultsEl.innerHTML = matters.map(m => {
-      const rawStatus   = m.status || "";
-      const status      = rawStatus.replace(/^\d+-/, "");
-      const rawSub      = (m.substatus || "").replace(/^\d+-/, "");
-      let displayStatus = /^final$/i.test(status) && rawSub ? rawSub : status;
-      let statusClass;
-      if (/in committee/i.test(displayStatus)) {
-        const intro = m.introductionDate ? new Date(m.introductionDate) : null;
-        const daysSince = intro ? (Date.now() - intro.getTime()) / 86400000 : 0;
-        if (daysSince > 180) {
-          displayStatus = "In Committee — Stale";
-          statusClass = "leg-status-stale";
-        } else {
-          displayStatus = "In Committee — Active";
-          statusClass = "leg-status-active";
-        }
-      } else {
-        statusClass = /pass/i.test(displayStatus)              ? "leg-status-passed"
-                    : /active|referred/i.test(displayStatus)   ? "leg-status-active"
-                    : "leg-status-other";
-      }
-      const date = m.introductionDate
-        ? new Date(m.introductionDate).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
-        : "";
-      const body     = m.controllingBody || "";
-      const subtitle = m.plainLanguageTitle && m.plainLanguageTitle !== m.title
-        ? `<div class="leg-card-subtitle">${escLeg(m.plainLanguageTitle)}</div>`
-        : "";
-      return `<div class="leg-card" role="listitem" tabindex="0"
-                   onclick="loadMatter('${escLeg(m.recordNumber)}')"
-                   onkeydown="if(event.key==='Enter')loadMatter('${escLeg(m.recordNumber)}')">
-        <div class="leg-card-title">${escLeg(m.title || m.recordNumber)}</div>
-        ${subtitle}
-        <div class="leg-card-meta">
-          <span class="${statusClass}">${escLeg(displayStatus)}</span>
-          ${date ? ` · ${date}` : ""}${body ? ` · ${escLeg(body)}` : ""}
-        </div>
-      </div>`;
-    }).join("");
+    resultsEl.innerHTML = matters.map(_matterCard).join("");
   }
 
   function loadMatter(recordNumber) {
-    const detailEl  = document.getElementById("leg-detail");
+    const detailEl   = document.getElementById("leg-detail");
     const detailView = document.getElementById("leg-detail-view");
+    const backBtn    = document.getElementById("leg-back-btn");
     document.getElementById("leg-search-view").style.display = "none";
     detailView.style.display = "";
+    const fromMeeting = legResultSource === "meeting" || legResultSource === "all-meetings";
+    backBtn.textContent = fromMeeting
+      ? `← Back to ${legCurrentMeetingLabel}`
+      : "← Back to results";
+    backBtn.onclick = fromMeeting ? showMeetingResults : showLegResults;
     detailEl.innerHTML = '<p class="leg-loading">Loading matter details…</p>';
     fetch("/legislation/matters/" + encodeURIComponent(recordNumber))
       .then(r => r.json())
@@ -1476,6 +1688,17 @@
       .catch(() => {
         detailEl.innerHTML = '<p class="leg-empty">Could not load this matter. Please try again.</p>';
       });
+  }
+
+  function showMeetingResults() {
+    showLegResults();
+    document.getElementById("leg-results-back-btn").style.display = "block";
+    _setBackBtn(legResultSource === "all-meetings" ? "All meetings" : "Recent meetings");
+    const headerEl = document.getElementById("leg-results-header");
+    headerEl.textContent = legCurrentMeetingLabel;
+    headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
+    renderResults(legCurrentResults);
+    document.getElementById("leg-browse-link").style.display = "none";
   }
 
   function renderMatterDetail(matter) {
@@ -1537,9 +1760,12 @@
     const reportFilesHtml = (matter.matterAttachments && matter.matterAttachments.length)
       ? `<div class="leg-timeline-heading">Related Documents</div>` +
         matter.matterAttachments.map(f => {
-          const url  = escLeg(f.path || f.url || "");
-          const name = escLeg(f.fileName || f.name || f.type || "Document");
-          return `<div class="leg-meeting-detail">📄 <a href="${url}" target="_blank" rel="noreferrer">${name}</a></div>`;
+          const url     = escLeg(f.path || f.url || "");
+          const name    = escLeg(f.fileName || f.name || f.type || "Document");
+          const summHtml = f.summary
+            ? `<p class="attachment-summary">${escLeg(f.summary)}</p>`
+            : "";
+          return `<div class="leg-meeting-detail">📄 <a href="${url}" target="_blank" rel="noreferrer">${name}</a>${summHtml}</div>`;
         }).join("")
       : "";
 

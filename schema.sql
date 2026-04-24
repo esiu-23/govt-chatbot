@@ -69,3 +69,35 @@ CREATE TABLE IF NOT EXISTS data_query_log (
     records_returned INTEGER,
     raw_result       JSONB
 );
+
+-- ---------------------------------------------------------------------------
+-- Legislation AI cache
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS plain_language_titles (
+    record_number  TEXT PRIMARY KEY,
+    original_title TEXT,          -- original ELMS title text (for auditing / text-based lookup)
+    plain_title    TEXT NOT NULL,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS attachment_summaries (
+    url_hash   TEXT PRIMARY KEY,  -- md5(url)
+    url        TEXT NOT NULL,
+    file_name  TEXT,              -- original fileName from ELMS attachment
+    summary    TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS meeting_summaries (
+    meeting_id   TEXT PRIMARY KEY,
+    body         TEXT,            -- committee / body name
+    meeting_date TEXT,            -- ISO date (YYYY-MM-DD)
+    summary      TEXT NOT NULL,
+    created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Migration for existing deployments:
+-- ALTER TABLE plain_language_titles ADD COLUMN IF NOT EXISTS original_title TEXT;
+-- ALTER TABLE attachment_summaries  ADD COLUMN IF NOT EXISTS file_name TEXT;
+-- ALTER TABLE meeting_summaries     ADD COLUMN IF NOT EXISTS body TEXT;
+-- ALTER TABLE meeting_summaries     ADD COLUMN IF NOT EXISTS meeting_date TEXT;

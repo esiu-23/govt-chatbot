@@ -20,6 +20,9 @@ A two-feature civic web app for Chicago residents, served from a single Flask pr
 | `GET /legislation/search` | `legislation_search()` | Plain-language legislation search |
 | `GET /legislation/matters/<record_number>` | `legislation_matter()` | Full matter detail with enrichment |
 | `GET /legislation/recent` | `legislation_recent()` | Top 12 recently introduced matters |
+| `GET /meetings/recent` | `meetings_recent()` | 8 most recent meetings with AI summaries |
+| `GET /meetings/all` | `meetings_all()` | Up to 50 past meetings with AI summaries (saves to DB) |
+| `GET /meetings/<meetingId>/matters` | `meeting_matters()` | All matters for a meeting, tagged routine/non-routine |
 
 All HTML-serving routes set `Cache-Control: no-store` via `_no_cache()`.
 
@@ -76,6 +79,9 @@ User → POST /chat → embed (Voyage AI) → pgvector cosine search (Supabase)
 - **`sessions`** — `session_id`, `lang`, `conversation` (JSONB), `feedback`, `feedback_note`
 - **`source_debug_log`** — retrieved vs. used vs. filtered URLs per request
 - **`data_query_log`** — every Socrata tool call with dataset, where/select clauses, row count
+- **`plain_language_titles`** — `record_number → plain_title`; Claude translations cached across restarts
+- **`attachment_summaries`** — `url_hash (md5) → summary`; PDF summaries at 5th-grade level
+- **`meeting_summaries`** — `meeting_id → summary`; ≤50-word meeting summaries
 
 ---
 
@@ -109,6 +115,15 @@ Key ELMS field notes:
 4. Return top 10 with slim fields: `recordNumber`, `title`, `status`, `subStatus`, `type`, `introductionDate`, `controllingBody`
 5. `_plain_language_titles(matters)` — batches uncached titles to Claude Haiku; returns `{"recordNumber": "plain title"}` dict; cached in module-level `_plain_language_cache`
 
+### Routine/non-routine classification
+
+`_classify_routine(matterType, matterTitle)` returns `True` for routine (agreed-calendar) items:
+- `matterType` in `{"claim", "communication", "report", "oath"}` → routine
+- `_is_boilerplate()` keyword match → routine
+- Anything else → non-routine
+
+The `agreedCalendar` field (`"YES"`/`"NO"`) is available on matters from the ELMS `/search` endpoint and full matter records, but is **not** present on meeting agenda items from `/meeting-agenda/{meetingId}`. The classification function above is used for meeting agenda items.
+
 ### Matter enrichment (`_enrich_matter`)
 
 Called on `GET /legislation/matters/<record_number>`.
@@ -118,7 +133,7 @@ Called on `GET /legislation/matters/<record_number>`.
    - `in_committee_active` / `in_committee_stale` (>180 days) / `held_in_committee` / `referred` / `passed` / `failed` / `withdrawn` / `tabled`
 3. **Action-level context** — referral actions get `action["statusContext"]` = Rule 41 explanation
 4. **Type description** — `matter["typeDescription"]` from `_LEGISLATION_TYPES` dict (ordinance, resolution, order, report, etc.)
-5. **Direct attachments** — `matter["matterAttachments"]` = `matter["attachments"]` from ELMS (legislation PDFs, etc.)
+5. **Direct attachments** — `matter["matterAttachments"]` = `matter["attachments"]` from ELMS (legislation PDFs, etc.). For `.pdf` URLs, `_pdf_summary()` is called to add a `summary` field — cached in `attachment_summaries` table.
 6. **Committee chair** — fuzzy match `matter.controllingBody` against `_COMMITTEE_CHAIRS` dict; sets `matter["committeeChair"]`
 7. **What can you do?** — `matter["whatCanYouDo"]` list: contact alderperson link + committee chair contact if in committee
 8. **Plain language title** — `matter["plainLanguageTitle"]` via `_plain_language_titles()`
@@ -130,16 +145,19 @@ Called on `GET /legislation/matters/<record_number>`.
 | `_COMMITTEE_CHAIRS` | 20 committees → `{"name": "Ald. ...", "ward": N}` — Sep 2025 data |
 | `_LEGISLATION_TYPES` | 8 matter types → plain English description |
 | `_STATUS_CONTEXT` | 8 status keys → plain English explanation strings |
-| `_plain_language_cache` | Module-level dict, `recordNumber → plain title`, persists across requests |
+| `_plain_language_cache` | Module-level dict, `recordNumber → plain title`; fully preloaded from DB at startup in `load_resources()`, so API is only called for new matters |
 | `RELEVANCE_CUTOFF` | `4` — minimum Claude rerank score to include in results |
 
 ### Frontend (Legislation tab in `static/index.html`)
 
 - **Tab switching** — `switchTab("legislation")` called on hash `#legislation` at page load
-- **Browse on open** — `loadRecentLegislation()` called once per tab open via `legRecentLoaded` flag; fetches `/legislation/recent`
+- **Browse on open** — `loadRecentMeetings()` called once per tab open via `legRecentLoaded` flag; fetches `/meetings/recent` and renders 8 meeting cards
+- **All meetings** — "Browse all meetings →" button at bottom of recent meetings calls `loadAllMeetings()` → fetches `/meetings/all` (up to 50, cached in `legAllMeetings`); same card format; back button returns to recent meetings
+- **Meeting drill-down** — `loadMeetingMatters(meetingId, label)` fetches `/meetings/{id}/matters`; re-uses `renderResults()` with routine badge; back button returns to whichever meeting list was active
+- **Meeting cards** — show date, 50-word AI summary, non-routine/routine counts
 - **Search** — `searchLegislation()` → `renderResults()` → result cards with plain language subtitle (italic), status badge (Active/Stale for In Committee), meta line
 - **Detail view** — `loadMatter()` → `renderMatterDetail()`: plain language subtitle, type description block, status context callout, action timeline with location + video, "Related Documents" from `matterAttachments`, "What can you do?" section
-- **Back navigation** — "← Back to results" re-renders cached results without re-fetching
+- **Back navigation** — context-aware: `legResultSource` ("search" | "meeting" | "all-meetings") controls where back buttons lead; `legShowingAllMeetings` flag tracks whether all-meetings view is active
 - **Legislation is English-only** — ELMS API content is English; existing chat multilingual support is untouched
 
 ---

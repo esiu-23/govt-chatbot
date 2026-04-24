@@ -17,24 +17,17 @@ import os
 import gc
 import re
 import csv
-import re
-import csv
-import re
-import csv
 import json
 import time
 import socket
 import ssl
-import logging
-import certifi
-import urllib.request
-import urllib.parse
-import ssl
+import hashlib
 import logging
 import certifi
 import urllib.request
 import urllib.parse
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import numpy as np
 import psycopg2
@@ -961,6 +954,18 @@ def load_resources() -> None:
             raise RuntimeError("No scrape data found. Run `python scrape_and_index.py` first.")
         SCRAPE_DATE, TOTAL_CHUNKS = row
 
+    # Pre-populate plain language title cache from DB so the API is only called for new matters
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT record_number, plain_title FROM plain_language_titles")
+            rows = cur.fetchall()
+            for rn, pt in rows:
+                _plain_language_cache[rn] = pt
+        print(f"Loaded {len(_plain_language_cache)} cached plain language titles from DB")
+    except Exception as exc:
+        print(f"Warning: could not preload plain language titles: {exc}")
+
     gc.collect()
     print(f"Ready — {TOTAL_CHUNKS} chunks in Supabase, scraped {SCRAPE_DATE}\n")
 
@@ -1110,9 +1115,20 @@ def _claude_create(*args, _retries: int = 3, _backoff: float = 2.0, **kwargs):
     (Sonnet) for one final attempt before raising.
     """
     primary = kwargs.get("model", CLAUDE_PRIMARY)
+    has_tools = bool(kwargs.get("tools"))
     for attempt in range(_retries):
         try:
-            return client.messages.create(*args, **kwargs)
+            t0 = time.monotonic()
+            resp = client.messages.create(*args, **kwargs)
+            elapsed = time.monotonic() - t0
+            usage = resp.usage
+            app.logger.info(
+                "[claude] model=%s tools=%s in=%d out=%d stop=%s elapsed=%.2fs",
+                resp.model, has_tools,
+                usage.input_tokens, usage.output_tokens,
+                resp.stop_reason, elapsed,
+            )
+            return resp
         except anthropic.APIStatusError as exc:
             if exc.status_code == 529 and attempt < _retries - 1:
                 wait = _backoff * (2 ** attempt)
@@ -1127,8 +1143,22 @@ def _claude_create(*args, _retries: int = 3, _backoff: float = 2.0, **kwargs):
                     primary, _retries, CLAUDE_FALLBACK,
                 )
                 fallback_kwargs = {**kwargs, "model": CLAUDE_FALLBACK}
-                return client.messages.create(*args, **fallback_kwargs)
+                t0 = time.monotonic()
+                resp = client.messages.create(*args, **fallback_kwargs)
+                elapsed = time.monotonic() - t0
+                usage = resp.usage
+                app.logger.info(
+                    "[claude] model=%s tools=%s in=%d out=%d stop=%s elapsed=%.2fs (fallback)",
+                    resp.model, has_tools,
+                    usage.input_tokens, usage.output_tokens,
+                    resp.stop_reason, elapsed,
+                )
+                return resp
             else:
+                app.logger.error(
+                    "[claude] API error model=%s status=%s: %s",
+                    primary, exc.status_code, exc.message,
+                )
                 raise
 
 
@@ -2169,14 +2199,140 @@ _STATUS_CONTEXT: dict[str, str] = {
 
 _plain_language_cache: dict[str, str] = {}  # recordNumber -> plain language title
 
+_ROUTINE_MATTER_TYPES = {"claim", "communication", "report", "oath"}
+
+
+def _classify_routine(matter_type: str, matter_title: str) -> bool:
+    """Return True if a matter is routine (agreed-calendar / boilerplate)."""
+    if (matter_type or "").lower() in _ROUTINE_MATTER_TYPES:
+        return True
+    return _is_boilerplate({"title": matter_title})
+
+
+def _attachment_summary(url: str, file_name: str = ""):
+    """Download an attachment, extract text, summarize at 5th-grade level. Cached in DB by URL hash."""
+    from io import BytesIO
+    url_hash = hashlib.md5(url.encode()).hexdigest()
+
+    if _pool:
+        try:
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT summary FROM attachment_summaries WHERE url_hash = %s", (url_hash,))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+        except Exception:
+            pass
+
+    try:
+        resp = _http.get(url, timeout=20, stream=True)
+        resp.raise_for_status()
+        content = b""
+        for chunk in resp.iter_content(65536):
+            content += chunk
+            if len(content) > 5 * 1024 * 1024:
+                break
+    except Exception:
+        return None
+
+    # Detect PDF by content-type or magic bytes
+    content_type = resp.headers.get("content-type", "").lower()
+    is_pdf = "pdf" in content_type or content[:5] == b"%PDF-"
+    if not is_pdf:
+        return None  # only handle PDFs for now
+
+    import base64
+    _SUMMARY_PROMPT = (
+        "Summarize this Chicago city government document in 2-3 sentences "
+        "at a 5th grade reading level. Describe what is being proposed or considered — "
+        "do not assume it was approved or passed. Be specific about what it involves, "
+        "who it affects, and where (if mentioned)."
+    )
+
+    # Try text extraction first
+    text = ""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(BytesIO(content))
+        for page in reader.pages[:10]:
+            text += page.extract_text() or ""
+            if len(text) > 4000:
+                break
+        text = text[:4000].strip()
+    except Exception:
+        pass
+
+    try:
+        if len(text) >= 50:
+            # Text-based PDF — summarize extracted text
+            ai_resp = _claude_create(
+                model=CLAUDE_PRIMARY,
+                max_tokens=200,
+                messages=[{"role": "user", "content": _SUMMARY_PROMPT + "\n\n" + text}],
+            )
+        else:
+            # Scanned/image PDF — send raw PDF to Claude via document API
+            ai_resp = _claude_create(
+                model=CLAUDE_PRIMARY,
+                max_tokens=200,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": base64.b64encode(content).decode(),
+                            },
+                        },
+                        {"type": "text", "text": _SUMMARY_PROMPT},
+                    ],
+                }],
+            )
+        summary = ai_resp.content[0].text.strip()
+    except Exception:
+        return None
+
+    if summary and _pool:
+        try:
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO attachment_summaries (url_hash, url, file_name, summary) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                    (url_hash, url, file_name or None, summary)
+                )
+        except Exception:
+            pass
+
+    return summary
+
 
 def _plain_language_titles(matters):
-    """Translate formal matter titles to plain language via Claude. Cached by recordNumber."""
+    """Translate formal matter titles to plain language via Claude. Cached in memory + Supabase."""
     uncached = [m for m in matters if m.get("recordNumber") not in _plain_language_cache]
-    if uncached:
+
+    # DB lookup for memory misses
+    if uncached and _pool:
+        try:
+            rns = [m["recordNumber"] for m in uncached if m.get("recordNumber")]
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT record_number, plain_title FROM plain_language_titles WHERE record_number = ANY(%s)",
+                    (rns,)
+                )
+                for rn, pt in cur.fetchall():
+                    _plain_language_cache[rn] = pt
+        except Exception:
+            pass
+
+    still_uncached = [m for m in matters if m.get("recordNumber") not in _plain_language_cache]
+    if still_uncached:
         items = "\n".join(
             f'{{"id": "{m.get("recordNumber")}", "title": "{(m.get("title") or "").replace(chr(34), "")[:150]}"}}'
-            for m in uncached
+            for m in still_uncached
         )
         prompt = (
             "Translate these Chicago City Council matter titles into plain English. "
@@ -2194,8 +2350,21 @@ def _plain_language_titles(matters):
             match = re.search(r'\{.*\}', text, re.DOTALL)
             if match:
                 translations = json.loads(match.group())
-                for record_number, plain in translations.items():
-                    _plain_language_cache[record_number] = plain
+                for rn, plain in translations.items():
+                    _plain_language_cache[rn] = plain
+                if translations and _pool:
+                    # Build lookup: recordNumber -> original title text
+                    orig_titles = {m.get("recordNumber"): (m.get("title") or "")[:500] for m in still_uncached}
+                    try:
+                        with _db() as conn:
+                            cur = conn.cursor()
+                            for rn, plain in translations.items():
+                                cur.execute(
+                                    "INSERT INTO plain_language_titles (record_number, original_title, plain_title) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                                    (rn, orig_titles.get(rn), plain)
+                                )
+                    except Exception:
+                        pass
         except Exception:
             pass  # leave uncached; frontend falls back to original title
 
@@ -2295,6 +2464,12 @@ def _enrich_matter(matter):
     # Direct matter attachments only (legislation text, reports, etc.)
     matter_type_raw = (matter.get("type") or "")
     direct_attachments = [f for f in (matter.get("attachments") or []) if f.get("path") or f.get("url")]
+    for att in direct_attachments:
+        url = att.get("path") or att.get("url") or ""
+        if url:
+            summary = _attachment_summary(url, file_name=att.get("fileName") or att.get("name") or "")
+            if summary:
+                att["summary"] = summary
     if direct_attachments:
         matter["matterAttachments"] = direct_attachments
 
@@ -2448,6 +2623,282 @@ def legislation_matter(record_number):
     except Exception as e:
         app.logger.error("[legislation] matter fetch error %s: %s", record_number, e)
         return jsonify({"error": "Could not load matter."}), 500
+
+
+def _meeting_summary(meeting_id: str, body: str, date_str: str, items: list) -> str:
+    """Generate a ≤50-word summary of a meeting. Cached in DB by meeting_id."""
+    if _pool:
+        try:
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT summary FROM meeting_summaries WHERE meeting_id = %s", (meeting_id,))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+        except Exception:
+            pass
+
+    non_routine = [i for i in items if not i.get("isRoutine")]
+    routine_count = sum(1 for i in items if i.get("isRoutine"))
+
+    if not non_routine and not items:
+        return ""
+
+    nr_titles = "\n".join(
+        f"- {i.get('matterType', 'Item')}: {(i.get('matterTitle') or '')[:120]}"
+        for i in non_routine[:20]
+    )
+    prompt = (
+        f"Summarize this Chicago City Council {body} meeting ({date_str}) in 50 words or fewer. "
+        "Focus on the non-routine items with specific detail (what action, what place or dollar amount). "
+        f"Mention routine items only as a count ({routine_count} routine items). "
+        "Write at a 5th grade reading level. Do not use bullet points — write 2-3 plain sentences.\n\n"
+        f"Non-routine items:\n{nr_titles if nr_titles else '(none)'}\n"
+        f"Routine items: {routine_count}"
+    )
+    try:
+        resp = _claude_create(
+            model=CLAUDE_PRIMARY,
+            max_tokens=150,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        summary = resp.content[0].text.strip()
+    except Exception:
+        summary = f"{len(non_routine)} non-routine and {routine_count} routine items considered."
+
+    if summary and _pool:
+        try:
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO meeting_summaries (meeting_id, body, meeting_date, summary) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                    (meeting_id, body, date_str, summary)
+                )
+        except Exception:
+            pass
+
+    return summary
+
+
+def _fetch_meeting_items(meeting_id: str) -> list:
+    """Fetch and classify agenda items for a meeting."""
+    detail = _elms_get(f"/meeting-agenda/{meeting_id}")
+    groups = (detail.get("agenda") or {}).get("groups", [])
+    items = []
+    for group in groups:
+        items.extend(group.get("items") or [])
+    for item in items:
+        item["isRoutine"] = _classify_routine(
+            item.get("matterType", ""), item.get("matterTitle", "")
+        )
+    return items
+
+
+@app.route("/meetings/recent")
+def meetings_recent():
+    """Return recent past meetings with AI-generated summaries and routine/non-routine counts."""
+    try:
+        raw = _elms_get("/meeting-agenda", {"top": 100, "orderby": "date desc"})
+        meetings = raw.get("value", raw.get("data", []))
+        today = datetime.now(timezone.utc).date().isoformat()
+        # Keep only past meetings, deduplicated by (date, body)
+        seen = set()
+        past = []
+        for m in meetings:
+            date_str = (m.get("date") or "")[:10]
+            if not date_str or date_str > today or not m.get("meetingId"):
+                continue
+            key = (date_str, m.get("body", ""))
+            if key not in seen:
+                seen.add(key)
+                past.append(m)
+
+        def enrich_meeting(m):
+            meeting_id = m["meetingId"]
+            try:
+                items = _fetch_meeting_items(meeting_id)
+            except Exception:
+                items = []
+            if not items:
+                return None  # skip meetings with no published agenda
+            routine_count = sum(1 for i in items if i.get("isRoutine"))
+            non_routine_count = len(items) - routine_count
+            date_str = (m.get("date") or "")[:10]
+            summary = _meeting_summary(meeting_id, m.get("body", ""), date_str, items)
+            return {
+                "meetingId": meeting_id,
+                "date": m.get("date"),
+                "body": m.get("body", ""),
+                "location": m.get("location", ""),
+                "status": m.get("status", ""),
+                "summary": summary,
+                "routineCount": routine_count,
+                "nonRoutineCount": non_routine_count,
+                "totalCount": len(items),
+            }
+
+        results = []
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {pool.submit(enrich_meeting, m): m for m in past}
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                        if len(results) >= 8:
+                            # Cancel remaining futures once we have enough
+                            for f in futures:
+                                f.cancel()
+                            break
+                except Exception:
+                    pass
+
+        results.sort(key=lambda x: x.get("date") or "", reverse=True)
+        return jsonify({"meetings": results[:8]})
+    except Exception as e:
+        app.logger.error("[meetings] recent error: %s", e)
+        return jsonify({"meetings": []})
+
+
+@app.route("/meetings/all")
+def meetings_all():
+    """Return up to 50 past meetings with AI-generated summaries, saving to DB."""
+    try:
+        raw = _elms_get("/meeting-agenda", {"top": 300, "orderby": "date desc"})
+        meetings = raw.get("value", raw.get("data", []))
+        today = datetime.now(timezone.utc).date().isoformat()
+        seen = set()
+        past = []
+        for m in meetings:
+            date_str = (m.get("date") or "")[:10]
+            if not date_str or date_str > today or not m.get("meetingId"):
+                continue
+            key = (date_str, m.get("body", ""))
+            if key not in seen:
+                seen.add(key)
+                past.append(m)
+
+        def enrich_meeting(m):
+            meeting_id = m["meetingId"]
+            try:
+                items = _fetch_meeting_items(meeting_id)
+            except Exception:
+                items = []
+            if not items:
+                return None
+            routine_count = sum(1 for i in items if i.get("isRoutine"))
+            non_routine_count = len(items) - routine_count
+            date_str = (m.get("date") or "")[:10]
+            summary = _meeting_summary(meeting_id, m.get("body", ""), date_str, items)
+            return {
+                "meetingId": meeting_id,
+                "date": m.get("date"),
+                "body": m.get("body", ""),
+                "location": m.get("location", ""),
+                "status": m.get("status", ""),
+                "summary": summary,
+                "routineCount": routine_count,
+                "nonRoutineCount": non_routine_count,
+                "totalCount": len(items),
+            }
+
+        results = []
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = {pool.submit(enrich_meeting, m): m for m in past}
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                        if len(results) >= 50:
+                            for f in futures:
+                                f.cancel()
+                            break
+                except Exception:
+                    pass
+
+        results.sort(key=lambda x: x.get("date") or "", reverse=True)
+        return jsonify({"meetings": results[:50]})
+    except Exception as e:
+        app.logger.error("[meetings] all error: %s", e)
+        return jsonify({"meetings": []})
+
+
+def _fetch_matter_detail_slim(record_number: str) -> dict:
+    """Fetch just status/introductionDate/controllingBody for a matter by record number."""
+    try:
+        m = _elms_get(f"/matter/recordNumber/{record_number}")
+        return {
+            "recordNumber": record_number,
+            "status": m.get("status"),
+            "substatus": m.get("subStatus"),
+            "introductionDate": m.get("introductionDate"),
+            "controllingBody": m.get("controllingBody"),
+        }
+    except Exception:
+        return {"recordNumber": record_number}
+
+
+@app.route("/meetings/<path:meeting_id>/matters")
+def meeting_matters(meeting_id):
+    """Return paginated matters for a meeting, non-routine first.
+
+    Query params:
+      offset (int, default 0)
+      limit  (int, default 10, max 50)
+    """
+    try:
+        offset = max(0, int(request.args.get("offset", 0)))
+        limit  = min(50, max(1, int(request.args.get("limit", 10))))
+
+        items = _fetch_meeting_items(meeting_id)
+        valid_items = [i for i in items if i.get("recordNumber")]
+
+        # Non-routine first, preserve original order within each group
+        sorted_items = (
+            [i for i in valid_items if not i.get("isRoutine")]
+            + [i for i in valid_items if i.get("isRoutine")]
+        )
+        total = len(sorted_items)
+        page  = sorted_items[offset: offset + limit]
+
+        # Parallel-fetch status/date/body only for this page
+        detail_map = {}
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {
+                pool.submit(_fetch_matter_detail_slim, i["recordNumber"]): i["recordNumber"]
+                for i in page
+            }
+            for fut in as_completed(futures):
+                d = fut.result()
+                detail_map[d["recordNumber"]] = d
+
+        matter_stubs = [
+            {"recordNumber": i.get("recordNumber"), "title": i.get("matterTitle")}
+            for i in page
+        ]
+        plain_titles = _plain_language_titles(matter_stubs)
+        slim = []
+        for i in page:
+            rn = i.get("recordNumber")
+            detail = detail_map.get(rn, {})
+            slim.append({
+                "recordNumber": rn,
+                "matterId": i.get("matterId"),
+                "title": i.get("matterTitle"),
+                "plainLanguageTitle": plain_titles.get(rn),
+                "type": i.get("matterType"),
+                "status": detail.get("status"),
+                "substatus": detail.get("substatus"),
+                "introductionDate": detail.get("introductionDate"),
+                "controllingBody": detail.get("controllingBody"),
+                "actionName": i.get("actionName"),
+                "isRoutine": i.get("isRoutine", False),
+            })
+        return jsonify({"matters": slim, "total": total, "offset": offset, "limit": limit})
+    except Exception as e:
+        app.logger.error("[meetings] matters error %s: %s", meeting_id, e)
+        return jsonify({"matters": [], "total": 0, "offset": 0, "limit": 10})
 
 
 if __name__ == "__main__":
