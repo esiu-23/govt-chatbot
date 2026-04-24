@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Government & Me — Chicago Civic Tools</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #003F87;
+      color: #fff;
+      padding: 0;
+    }
+
+    .flag-bar {
+      display: flex;
+      height: 5px;
+    }
+    .flag-bar .blue { background: #003F87; flex: 1; }
+    .flag-bar .white { background: #fff; flex: 1; }
+    .flag-bar .red { background: #c8102e; flex: 1; }
+
+    .header-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 28px 24px 24px;
+      text-align: center;
+    }
+
+    .header-inner h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+
+    .header-inner p {
+      font-size: 0.95rem;
+      opacity: 0.8;
+    }
+
+    main {
+      flex: 1;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 56px 24px 64px;
+    }
+
+    .intro {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .intro h2 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: #003F87;
+      margin-bottom: 10px;
+    }
+
+    .intro p {
+      font-size: 1rem;
+      color: #444;
+      max-width: 560px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 600px) {
+      .cards { grid-template-columns: 1fr; }
+      .header-inner h1 { font-size: 1.35rem; }
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #dde3ed;
+      border-radius: 12px;
+      padding: 32px 28px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: box-shadow 0.15s, border-color 0.15s, transform 0.12s;
+    }
+
+    .card:hover {
+      box-shadow: 0 6px 24px rgba(0,63,135,0.12);
+      border-color: #003F87;
+      transform: translateY(-2px);
+    }
+
+    .card-number {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #003F87;
+      background: #e8eff9;
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      width: fit-content;
+    }
+
+    .card h3 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #003F87;
+      line-height: 1.3;
+    }
+
+    .card p {
+      font-size: 0.92rem;
+      color: #555;
+      line-height: 1.6;
+      flex: 1;
+    }
+
+    .card-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #003F87;
+    }
+
+    .card-cta::after {
+      content: "→";
+      transition: transform 0.15s;
+    }
+
+    .card:hover .card-cta::after {
+      transform: translateX(4px);
+    }
+
+    footer {
+      border-top: 1px solid #dde3ed;
+      padding: 20px 24px;
+      text-align: center;
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    footer a { color: #888; }
+    footer a:hover { color: #003F87; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="flag-bar">
+      <div class="blue"></div><div class="white"></div><div class="blue"></div>
+      <div class="white"></div><div class="red"></div><div class="white"></div>
+    </div>
+    <div class="header-inner">
+      <h1>The Government &amp; Me</h1>
+      <p>Civic tools for Chicago residents</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="intro">
+      <h2>What would you like to do?</h2>
+      <p>Two tools to help you understand and engage with your city government.</p>
+    </div>
+
+    <div class="cards">
+      <a class="card" href="/app">
+        <span class="card-number">1</span>
+        <h3>Explore City Services</h3>
+        <p>Ask questions about what services the City of Chicago offers — from parks and schools to permits and social services. Get plain-language answers drawn from official city sources.</p>
+        <span class="card-cta">Open chat assistant</span>
+      </a>
+
+      <a class="card" href="/app#legislation">
+        <span class="card-number">2</span>
+        <h3>Search &amp; Browse Legislation</h3>
+        <p>Find ordinances, resolutions, and other matters introduced to the Chicago City Council. Search in plain language and see the full legislative timeline for any bill.</p>
+        <span class="card-cta">Browse legislation</span>
+      </a>
+    </div>
+  </main>
+
+  <footer>
+    Data from <a href="https://chicityclerkelms.chicago.gov" target="_blank" rel="noreferrer">Chicago City Clerk eLMS</a>
+    &amp; <a href="https://chicago.gov" target="_blank" rel="noreferrer">chicago.gov</a>
+  </footer>
+</body>
+</html>

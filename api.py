@@ -45,6 +45,7 @@ from pgvector.psycopg2 import register_vector
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
 import anthropic
+import requests as _http
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -1389,10 +1390,20 @@ def log_request_end(response):
     return response
 
 
+def _no_cache(resp):
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @app.route("/")
 def index():
-    app.logger.info("index pinged")
-    return send_from_directory("static", "index.html")
+    return _no_cache(send_from_directory("static", "landing.html"))
+
+
+@app.route("/app")
+def app_page():
+    app.logger.info("app pinged")
+    return _no_cache(send_from_directory("static", "index.html"))
 
 
 @app.route("/health")
@@ -2052,6 +2063,391 @@ def feedback():
 
     log_feedback(session_id, feedback_type, note)
     return jsonify({"ok": True})
+
+
+# ===========================================================================
+# ELMS Legislation — helpers + routes
+# ===========================================================================
+
+ELMS_BASE = "https://api.chicityclerkelms.chicago.gov"
+
+_BOILERPLATE_KEYWORDS = [
+    "damage claim", "damage to vehicle", "permit fee waiver",
+    "parking", "ticket adjudication", "damaged vehicle",
+    "tax levy", "rebate", "honorarium",
+]
+
+
+def _elms_get(path, params=None):
+    resp = _http.get(ELMS_BASE + path, params=params or {}, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _is_boilerplate(matter):
+    title = (matter.get("title") or "").lower()
+    return any(kw in title for kw in _BOILERPLATE_KEYWORDS)
+
+
+RELEVANCE_CUTOFF = 4  # scores below this (1-10) are dropped as not relevant
+
+# Committee chairs — last updated Sep 2025 (Johnson reshuffle via Chicago Sun-Times)
+_COMMITTEE_CHAIRS: dict[str, dict] = {
+    "Committee on Aviation":                            {"name": "Ald. Matt O'Shea",              "ward": 19},
+    "Committee on Budget and Government Operations":    {"name": "Ald. Jason Ervin",               "ward": 28},
+    "Committee on Committees, Rules and Ethics":        {"name": "Ald. Michelle Harris",           "ward": 8},
+    "Committee on Contracting Oversight and Equity":    {"name": "Ald. David Moore",               "ward": 17},
+    "Committee on Economic, Capital and Technology Development": {"name": "Ald. Derrick Curtis",   "ward": 18},
+    "Committee on Education and Child Development":     {"name": "Ald. Jeanette Taylor",           "ward": 20},
+    "Committee on Environmental Protection and Energy": {"name": "Ald. Maria Hadden",              "ward": 49},
+    "Committee on Ethics and Government Oversight":     {"name": "Ald. Matt Martin",               "ward": 47},
+    "Committee on Finance":                             {"name": "Ald. Pat Dowell",                "ward": 3},
+    "Committee on Health and Human Relations":          {"name": "Ald. Rossana Rodríguez-Sánchez", "ward": 33},
+    "Committee on Housing and Real Estate":             {"name": "Ald. Byron Sigcho-Lopez",        "ward": 25},
+    "Committee on Immigrant and Refugee Rights":        {"name": "Ald. Jessie Fuentes",            "ward": 26},
+    "Committee on License and Consumer Protection":     {"name": "Ald. Debra Silverstein",         "ward": 50},
+    "Committee on Pedestrian and Traffic Safety":       {"name": "Ald. Andre Vasquez",             "ward": 40},
+    "Committee on Police and Fire":                     {"name": "Ald. Chris Taliaferro",          "ward": 29},
+    "Committee on Public Safety":                       {"name": "Ald. Brian Hopkins",             "ward": 2},
+    "Committee on Special Events, Cultural Affairs and Recreation": {"name": "Ald. Nick Sposato",  "ward": 38},
+    "Committee on Transportation and Public Way":       {"name": "Ald. Greg Mitchell",             "ward": 7},
+    "Committee on Workforce Development":               {"name": "Ald. Michael Rodriguez",         "ward": 22},
+    "Committee on Zoning, Landmarks and Building Standards": {"name": "Ald. Daniel La Spata",     "ward": 1},
+}
+
+# Plain-language descriptions of each legislation type
+_LEGISLATION_TYPES: dict[str, str] = {
+    "ordinance":   "An ordinance creates, amends, or repeals a law in the Chicago Municipal Code. It has full legal force once signed by the Mayor (or after a veto override).",
+    "resolution":  "A resolution expresses the City Council's opinion, honors an individual or organization, or calls for a specific action. It does not have the force of law.",
+    "order":       "An order directs a city department or official to take a specific administrative action — such as issuing a permit, making a public-way repair, or conducting a study. It does not amend the Municipal Code.",
+    "appointment": "An appointment confirms a person nominated by the Mayor to serve on a city board, commission, or authority (e.g., the Chicago Transit Authority or Plan Commission).",
+    "claim":       "A claim is a compensation request from a resident or business for damages caused by city property, vehicles, or employees. Most are routine and processed in bulk.",
+    "oath":        "An oath records the swearing-in of a newly elected or appointed official.",
+    "communication": "A communication is information submitted to the Council by the Mayor or a city department for the record. No vote is required.",
+    "report":      "A formal report submitted to the City Council, typically from a city department, inspector general, or oversight body.",
+}
+
+# Status-level plain language context shown on the matter detail page
+_STATUS_CONTEXT: dict[str, str] = {
+    "in_committee_active": (
+        "This legislation is currently under review by the committee listed above. "
+        "Pursuant to City Council Rule 41, all legislation is automatically referred to committee after introduction. "
+        "The committee will schedule a public hearing before voting to advance or reject it."
+    ),
+    "in_committee_stale": (
+        "This legislation has been in committee for more than 180 days with no recorded action. "
+        "Under City Council rules, any alderperson can move to discharge it from committee with a majority vote, "
+        "but this rarely happens. The legislation may effectively be dead."
+    ),
+    "held_in_committee": (
+        "The legislation failed to receive enough committee votes to advance. "
+        "This effectively stalls or kills the measure — no further action is expected this session. "
+        "A committee can hold a bill when members want more time, when it lacks support, "
+        "or when leadership wants to avoid a full council vote."
+    ),
+    "referred": (
+        "Pursuant to City Council Rule 41, all proposed legislation is automatically referred to a committee "
+        "for consideration and only acted upon by the City Council at a subsequent meeting."
+    ),
+    "passed": (
+        "The City Council voted to approve this legislation. "
+        "If it is an ordinance, it has the force of law once signed by the Mayor. "
+        "If it is a resolution, it expresses the Council's official position."
+    ),
+    "failed": (
+        "The City Council voted against this legislation. It did not pass and requires reintroduction to be reconsidered."
+    ),
+    "withdrawn": (
+        "The sponsor(s) withdrew this legislation before a final vote. "
+        "It can be reintroduced in a future session."
+    ),
+    "tabled": (
+        "The City Council voted to table (postpone indefinitely) consideration of this legislation. "
+        "It can be brought back off the table at a future meeting with a majority vote."
+    ),
+}
+
+_plain_language_cache: dict[str, str] = {}  # recordNumber -> plain language title
+
+
+def _plain_language_titles(matters):
+    """Translate formal matter titles to plain language via Claude. Cached by recordNumber."""
+    uncached = [m for m in matters if m.get("recordNumber") not in _plain_language_cache]
+    if uncached:
+        items = "\n".join(
+            f'{{"id": "{m.get("recordNumber")}", "title": "{(m.get("title") or "").replace(chr(34), "")[:150]}"}}'
+            for m in uncached
+        )
+        prompt = (
+            "Translate these Chicago City Council matter titles into plain English. "
+            "Each translation should be 1 sentence, ≤15 words, no legal jargon, written for a general audience. "
+            'Return ONLY a JSON object mapping each id to its plain English translation. Example: {"O2025-001": "Adds protected bike lanes on Milwaukee Ave"}\n\n'
+            f"[{items}]"
+        )
+        try:
+            resp = _claude_create(
+                model=CLAUDE_PRIMARY,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = resp.content[0].text.strip()
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                translations = json.loads(match.group())
+                for record_number, plain in translations.items():
+                    _plain_language_cache[record_number] = plain
+        except Exception:
+            pass  # leave uncached; frontend falls back to original title
+
+    return {
+        m.get("recordNumber"): _plain_language_cache.get(m.get("recordNumber"))
+        for m in matters
+    }
+
+
+def _claude_rerank(query, matters):
+    if not matters:
+        return matters
+    numbered = "\n".join(
+        f"{i+1}. [{m.get('recordNumber', '')}] {(m.get('title') or '')[:120]}"
+        for i, m in enumerate(matters)
+    )
+    prompt = (
+        f"User query: {query}\n\n"
+        "Score each Chicago City Council matter by relevance to the query (1=irrelevant, 10=exact match). "
+        "Return ONLY a JSON array of objects ordered from most to least relevant, omitting nothing. "
+        'Format: [{"id": "O2025-...", "score": 8}, ...]. No other text.\n\n'
+        f"{numbered}"
+    )
+    try:
+        resp = _claude_create(
+            model=CLAUDE_PRIMARY,
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text.strip()
+        match = re.search(r'\[.*?\]', text, re.DOTALL)
+        if not match:
+            return matters
+        scored = json.loads(match.group())
+        id_to_matter = {m.get("recordNumber"): m for m in matters}
+        reranked = []
+        seen = set()
+        for item in scored:
+            rid = item.get("id")
+            score = item.get("score", 0)
+            if rid in id_to_matter and score >= RELEVANCE_CUTOFF:
+                reranked.append(id_to_matter[rid])
+                seen.add(rid)
+        # fallback: append unscored matters so nothing is silently lost on parse errors
+        reranked += [m for m in matters if m.get("recordNumber") not in seen and m.get("recordNumber") not in {item.get("id") for item in scored}]
+        return reranked
+    except Exception:
+        return matters
+
+
+def _enrich_matter(matter):
+    actions = matter.get("actions") or []
+    # Build (body, date) -> meetingId map, avoiding duplicate lookups
+    meeting_id_map = {}
+    for action in actions:
+        body = action.get("actionByName", "")
+        date_str = (action.get("actionDate") or "")[:10]
+        if not body or not date_str or (body, date_str) in meeting_id_map:
+            continue
+        try:
+            raw = _elms_get("/meeting-agenda", {"search": body, "top": 200})
+            meetings = raw.get("value", raw.get("data", []))
+            for meeting in meetings:
+                if (meeting.get("date") or "")[:10] == date_str:
+                    meeting_id = meeting.get("meetingId") or meeting.get("id")
+                    if meeting_id:
+                        meeting_id_map[(body, date_str)] = meeting_id
+                    break
+        except Exception:
+            pass
+
+    # Fetch full meeting details for each unique meetingId
+    meeting_details = {}
+    for key, meeting_id in meeting_id_map.items():
+        try:
+            detail = _elms_get(f"/meeting-agenda/{meeting_id}")
+            video = detail.get("videoLink")
+            detail["videoLinks"] = [video] if isinstance(video, str) and video else (video if isinstance(video, list) else [])
+            meeting_details[key] = detail
+        except Exception:
+            pass
+
+    for action in actions:
+        body = action.get("actionByName", "")
+        date_str = (action.get("actionDate") or "")[:10]
+        detail = meeting_details.get((body, date_str))
+        if detail:
+            action["meetingDetails"] = detail
+
+    # Annotate referral actions with plain language status context
+    for action in actions:
+        if "refer" in (action.get("actionName") or "").lower():
+            action["statusContext"] = _STATUS_CONTEXT["referred"]
+
+    # ── Matter-level enrichments ──────────────────────────────────────────────
+
+    # Direct matter attachments only (legislation text, reports, etc.)
+    matter_type_raw = (matter.get("type") or "")
+    direct_attachments = [f for f in (matter.get("attachments") or []) if f.get("path") or f.get("url")]
+    if direct_attachments:
+        matter["matterAttachments"] = direct_attachments
+
+    # Type description
+    matter_type = matter_type_raw.lower()
+    for key, desc in _LEGISLATION_TYPES.items():
+        if key in matter_type:
+            matter["typeDescription"] = desc
+            break
+
+    # Status context — ELMS API uses "subStatus" (capital S)
+    raw_status = (matter.get("status") or "").lower()
+    raw_sub    = (matter.get("subStatus") or matter.get("substatus") or "").lower()
+    display    = re.sub(r'^\d+-', '', raw_status).strip()
+    intro_date = matter.get("introductionDate")
+    days_old   = 0
+    if intro_date:
+        from datetime import datetime, timezone
+        try:
+            dt = datetime.fromisoformat(intro_date.replace("Z", "+00:00"))
+            days_old = (datetime.now(timezone.utc) - dt).days
+        except Exception:
+            pass
+
+    if "held in committee" in display:
+        matter["statusContext"] = _STATUS_CONTEXT["held_in_committee"]
+    elif "in committee" in display:
+        matter["statusContext"] = _STATUS_CONTEXT["in_committee_stale" if days_old > 180 else "in_committee_active"]
+    elif "refer" in display:
+        matter["statusContext"] = _STATUS_CONTEXT["referred"]
+    elif re.search(r'pass|adopt|approv', re.sub(r'^\d+-', '', raw_sub or display)):
+        matter["statusContext"] = _STATUS_CONTEXT["passed"]
+    elif re.search(r'fail|reject|defeat', re.sub(r'^\d+-', '', raw_sub or display)):
+        matter["statusContext"] = _STATUS_CONTEXT["failed"]
+    elif "withdraw" in display:
+        matter["statusContext"] = _STATUS_CONTEXT["withdrawn"]
+    elif "table" in display:
+        matter["statusContext"] = _STATUS_CONTEXT["tabled"]
+
+    # Committee chair lookup
+    controlling_body = matter.get("controllingBody") or ""
+    chair = None
+    for committee_name, chair_info in _COMMITTEE_CHAIRS.items():
+        if committee_name.lower() in controlling_body.lower() or controlling_body.lower() in committee_name.lower():
+            chair = chair_info
+            break
+    if chair:
+        matter["committeeChair"] = chair
+
+    # "What can you do?" section
+    what_can_you_do = []
+    if "in committee" in display or "refer" in display:
+        what_can_you_do.append({
+            "action": "Contact your alderperson",
+            "detail": "Your ward's alderperson can advocate for or against this legislation in committee and on the Council floor.",
+            "link": "https://www.chicago.gov/city/en/depts/mayor/provdrs/your_ward_and_alderman/svcs/find_my_alderman.html",
+            "linkText": "Find your alderperson",
+        })
+        if chair:
+            what_can_you_do.append({
+                "action": f"Contact the committee chair: {chair['name']}",
+                "detail": f"As chair of the {controlling_body}, this alderperson controls when and whether the legislation receives a hearing.",
+                "link": f"https://www.chicago.gov/city/en/about/wards/{chair['ward']:02d}thward.html",
+                "linkText": f"Ward {chair['ward']} office",
+            })
+        what_can_you_do.append({
+            "action": "Watch the committee meeting",
+            "detail": "Committee meetings are open to the public. Live streams and archives are on the City Clerk's website.",
+            "link": "https://www.chicityclerk.com/city-council-news-and-events/city-council-and-committee-meetings",
+            "linkText": "View upcoming meetings",
+        })
+    elif "pass" in display or (raw_sub and re.search(r'pass|adopt', raw_sub)):
+        what_can_you_do.append({
+            "action": "Read the full text",
+            "detail": "The ordinance or resolution text is available in the attachments above or on the City Clerk's website.",
+            "link": "https://chicityclerkelms.chicago.gov",
+            "linkText": "Chicago City Clerk eLMS",
+        })
+
+    if what_can_you_do:
+        matter["whatCanYouDo"] = what_can_you_do
+
+    return matter
+
+
+@app.route("/legislation/recent")
+def legislation_recent():
+    """Return the most recently introduced non-boilerplate matters for the default browse view."""
+    try:
+        raw = _elms_get("/search", {"search": "", "top": 50, "orderby": "introductionDate desc"})
+        matters = raw.get("value", raw.get("data", []))
+        matters = [m for m in matters if not _is_boilerplate(m)][:12]
+        plain_titles = _plain_language_titles(matters)
+        slim = [
+            {
+                "recordNumber": m.get("recordNumber"),
+                "title": m.get("title"),
+                "plainLanguageTitle": plain_titles.get(m.get("recordNumber")),
+                "status": m.get("status"),
+                "substatus": m.get("substatus"),
+                "type": m.get("type"),
+                "introductionDate": m.get("introductionDate"),
+                "controllingBody": m.get("controllingBody"),
+            }
+            for m in matters
+        ]
+        return jsonify({"matters": slim, "count": len(slim)})
+    except Exception as e:
+        app.logger.error("[legislation] recent error: %s", e)
+        return jsonify({"matters": [], "count": 0})
+
+
+@app.route("/legislation/search")
+def legislation_search():
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"matters": [], "count": 0})
+    try:
+        raw = _elms_get("/search", {"search": q, "top": 25})
+        matters = raw.get("value", raw.get("data", []))
+        matters = [m for m in matters if not _is_boilerplate(m)]
+        matters = _claude_rerank(q, matters)[:10]
+        plain_titles = _plain_language_titles(matters)
+        slim = [
+            {
+                "recordNumber": m.get("recordNumber"),
+                "title": m.get("title"),
+                "plainLanguageTitle": plain_titles.get(m.get("recordNumber")),
+                "status": m.get("status"),
+                "substatus": m.get("subStatus") or m.get("substatus"),
+                "type": m.get("type"),
+                "introductionDate": m.get("introductionDate"),
+                "controllingBody": m.get("controllingBody"),
+            }
+            for m in matters
+        ]
+        return jsonify({"matters": slim, "count": len(slim)})
+    except Exception as e:
+        app.logger.error("[legislation] search error: %s", e)
+        return jsonify({"error": "Search failed. Please try again."}), 500
+
+
+@app.route("/legislation/matters/<path:record_number>")
+def legislation_matter(record_number):
+    try:
+        matter = _elms_get(f"/matter/recordNumber/{record_number}")
+        matter = _enrich_matter(matter)
+        plain = _plain_language_titles([matter])
+        matter["plainLanguageTitle"] = plain.get(matter.get("recordNumber"))
+        return jsonify(matter)
+    except Exception as e:
+        app.logger.error("[legislation] matter fetch error %s: %s", record_number, e)
+        return jsonify({"error": "Could not load matter."}), 500
 
 
 if __name__ == "__main__":
