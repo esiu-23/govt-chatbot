@@ -607,11 +607,14 @@
     .tab-btn.active { background: #fff; color: #003F87; }
 
     /* ── Legislation panel ────────────────────────────────────────────────── */
-    #legislation-panel {
+    #legislation-panel, #il-legislation-panel {
       flex: 1;
       overflow-y: auto;
       padding: 24px;
     }
+    #leg-inner, #il-leg-inner { max-width: 760px; margin: 0 auto; }
+    #il-leg-search-form { display: flex; gap: 8px; margin-bottom: 20px; }
+    #il-leg-query { flex: 1; padding: 10px 14px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 0.95rem; }
     #leg-inner { max-width: 760px; margin: 0 auto; }
     .leg-prompt { font-size: 1.05rem; font-weight: 600; color: #1a202c; margin-bottom: 12px; }
     #leg-search-form { display: flex; gap: 8px; margin-bottom: 20px; }
@@ -691,15 +694,132 @@
     .leg-meeting-card {
       background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #003F87;
       border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
-      cursor: pointer; transition: border-color .15s, box-shadow .15s;
+      display: flex; align-items: center; gap: 10px;
+      transition: border-color .15s, box-shadow .15s;
     }
     .leg-meeting-card:hover { box-shadow: 0 2px 8px rgba(0,63,135,.12); border-color: #003F87; }
+    .leg-meeting-card-content { flex: 1; cursor: pointer; min-width: 0; }
     .leg-meeting-header { font-weight: 700; font-size: 0.95rem; color: #1a202c; margin-bottom: 4px; }
     .leg-meeting-body { font-size: 0.83rem; color: #718096; margin-bottom: 6px; }
     .leg-meeting-summary { font-size: 0.88rem; color: #4a5568; line-height: 1.55; margin-bottom: 6px; }
     .leg-meeting-counts { font-size: 0.78rem; color: #718096; }
     .leg-meeting-counts .nr { color: #003F87; font-weight: 600; }
-    .attachment-summary { font-size: 0.8rem; color: #718096; font-style: italic; margin: 4px 0 2px 20px; line-height: 1.5; }
+    .sub-meeting-card-btn {
+      flex-shrink: 0; font-size: 0.78rem; color: #003F87; background: none;
+      border: 1px solid #c3d3f7; padding: 6px 12px; border-radius: 16px;
+      cursor: pointer; font-family: inherit; white-space: nowrap;
+      transition: background .15s; align-self: center;
+    }
+    .sub-meeting-card-btn:hover { background: #e8f0fe; }
+    /* ── About this legislation section ────────────────────────────────── */
+    .ai-summary-section {
+      background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 12px 14px; margin: 14px 0;
+    }
+    .ai-summary-heading {
+      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #4a5568; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .ai-tooltip-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 15px; height: 15px; border-radius: 50%;
+      background: #cbd5e0; color: #4a5568; font-size: 0.65rem; font-weight: 700;
+      cursor: help; position: relative; flex-shrink: 0;
+    }
+    .ai-tooltip-icon::after {
+      content: attr(data-tip); position: absolute; left: 20px; top: 50%;
+      transform: translateY(-50%); width: 210px; background: #2d3748; color: #fff;
+      font-size: 0.75rem; font-weight: 400; padding: 8px 10px; border-radius: 6px;
+      line-height: 1.45; z-index: 20; pointer-events: none; opacity: 0;
+      transition: opacity .15s; text-transform: none; letter-spacing: 0;
+    }
+    .ai-tooltip-icon:hover::after { opacity: 1; }
+    .ai-summary-item { margin-bottom: 10px; }
+    .ai-summary-item:last-child { margin-bottom: 0; }
+    .ai-summary-label {
+      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; color: #718096; margin-bottom: 3px;
+    }
+    .ai-summary-text { font-size: 0.875rem; color: #4a5568; line-height: 1.6; }
+    .sub-track-btn {
+      display: inline-block; margin: 12px 0;
+    }
+
+    /* ── Subscription modal ─────────────────────────────────────────────────── */
+    #sub-modal {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #sub-backdrop {
+      position: absolute; inset: 0; background: rgba(0,0,0,.45);
+    }
+    #sub-box {
+      position: relative; background: #fff; border-radius: 12px;
+      padding: 28px; width: 100%; max-width: 420px; margin: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.2);
+    }
+    #sub-close {
+      position: absolute; top: 12px; right: 14px; background: none;
+      border: none; font-size: 1.1rem; color: #718096; cursor: pointer;
+      padding: 4px 8px; border-radius: 4px; line-height: 1;
+    }
+    #sub-close:hover { background: #f0f4f8; }
+    #sub-modal-title { font-size: 1.05rem; font-weight: 700; color: #1a202c; margin-bottom: 6px; }
+    #sub-modal-desc  { font-size: 0.875rem; color: #4a5568; margin-bottom: 4px; line-height: 1.55; }
+    #sub-body-row label,
+    #sub-modal label[for="sub-email-input"] {
+      display: block; font-size: 0.8rem; font-weight: 600; color: #4a5568;
+      margin-bottom: 4px; margin-top: 14px;
+    }
+    #sub-body-select, #sub-email-input {
+      width: 100%; border: 1px solid #cbd5e0; border-radius: 8px;
+      padding: 9px 12px; font-size: 0.9rem; font-family: inherit; background: #fff;
+    }
+    #sub-body-select:focus, #sub-email-input:focus {
+      border-color: #003F87; outline: none; box-shadow: 0 0 0 3px rgba(0,63,135,.15);
+    }
+    #sub-matter-chip {
+      font-size: 0.875rem; color: #1a202c;
+      background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 8px 12px; margin-top: 14px; margin-bottom: 4px;
+      line-height: 1.4; display: block;
+    }
+    #sub-error {
+      font-size: 0.82rem; color: #c53030; margin-top: 10px;
+      background: #fff5f5; border: 1px solid #feb2b2;
+      border-radius: 6px; padding: 8px 12px;
+    }
+    #sub-success {
+      font-size: 0.95rem; color: #276749; font-weight: 600;
+      text-align: center; padding: 14px 0;
+    }
+    #sub-submit-btn {
+      width: 100%; margin-top: 18px; background: #003F87; color: #fff;
+      border: none; border-radius: 8px; padding: 11px; font-size: 0.95rem;
+      font-weight: 600; cursor: pointer; font-family: inherit; transition: background .15s;
+    }
+    #sub-submit-btn:hover    { background: #00306a; }
+    #sub-submit-btn:disabled { background: #a0aec0; cursor: default; }
+    .sub-meeting-bar {
+      text-align: center; margin: 8px 0 4px;
+    }
+    .sub-meeting-btn {
+      font-size: 0.82rem; color: #003F87; background: none;
+      border: 1px solid #c3d3f7; padding: 6px 16px; border-radius: 20px;
+      cursor: pointer; font-family: inherit; transition: background .15s;
+    }
+    .sub-meeting-btn:hover { background: #e8f0fe; }
+    .sub-track-btn {
+      font-size: 0.82rem; color: #003F87; background: none;
+      border: 1px solid #c3d3f7; padding: 7px 16px; border-radius: 20px;
+      cursor: pointer; font-family: inherit; transition: background .15s;
+    }
+    .sub-track-btn:hover { background: #e8f0fe; }
+    .sub-track-final {
+      display: inline-block; font-size: 0.8rem; color: #718096;
+      font-style: italic; margin: 12px 0;
+    }
   </style>
 </head>
 <body>
@@ -718,7 +838,8 @@
 
   <div id="tab-bar">
     <button class="tab-btn active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
-    <button class="tab-btn" data-tab="legislation" onclick="switchTab('legislation')">Legislation</button>
+    <button class="tab-btn" data-tab="legislation" onclick="switchTab('legislation')">Chicago Legislation</button>
+    <!-- <button class="tab-btn" data-tab="il-legislation" onclick="switchTab('il-legislation')">Illinois Legislation</button> -->
   </div>
 
   <!-- <a href="/" class="home-link">← Home</a>
@@ -845,6 +966,9 @@
       <div id="leg-browse-link" style="text-align:center; margin-top:18px; display:none">
         <button onclick="loadAllMeetings()" style="font-size:0.85rem; color:#003F87; background:none; border:1px solid #003F87; padding:6px 16px; border-radius:20px; cursor:pointer;">Browse all meetings →</button>
       </div>
+      <div class="sub-meeting-bar">
+        <button class="sub-meeting-btn" onclick="openSubModal('meeting','City Council')">✉ Get email updates for meetings</button>
+      </div>
     </div>
 
     <!-- Detail view -->
@@ -853,6 +977,52 @@
       <div id="leg-detail"></div>
     </div>
 
+  </div>
+</div>
+
+<!-- Illinois Legislation Panel -->
+<div id="il-legislation-panel" style="display:none">
+  <div id="il-leg-inner">
+    <div id="il-leg-search-view">
+      <p class="leg-prompt">Search Illinois state legislation</p>
+      <form id="il-leg-search-form" onsubmit="searchIlLegislation(event)">
+        <input id="il-leg-query" type="text" placeholder='e.g. "public transit funding"' autocomplete="off" aria-label="Search Illinois legislation" />
+        <button type="submit" id="il-leg-search-btn">Search</button>
+      </form>
+      <div id="il-leg-results-header" style="display:none" aria-live="polite"></div>
+      <div id="il-leg-results" role="list" aria-label="Illinois legislation results"></div>
+    </div>
+    <div id="il-leg-detail-view" style="display:none">
+      <button class="leg-back-btn" id="il-leg-back-btn" onclick="showIlLegResults()">← Back to results</button>
+      <div id="il-leg-detail"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Subscription modal ───────────────────────────────────────────────── -->
+<div id="sub-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="sub-modal-title">
+  <div id="sub-backdrop" onclick="closeSubModal()"></div>
+  <div id="sub-box">
+    <button id="sub-close" onclick="closeSubModal()" aria-label="Close dialog">✕</button>
+    <h2 id="sub-modal-title"></h2>
+    <p id="sub-modal-desc"></p>
+
+    <div id="sub-body-row">
+      <label for="sub-body-select">Committee or body</label>
+      <select id="sub-body-select"></select>
+    </div>
+
+    <div id="sub-matter-row" style="display:none">
+      <span id="sub-matter-chip"></span>
+    </div>
+
+    <label for="sub-email-input">Your email address</label>
+    <input id="sub-email-input" type="email" placeholder="you@example.com" autocomplete="email" />
+
+    <div id="sub-error" style="display:none"></div>
+    <div id="sub-success" style="display:none"></div>
+
+    <button id="sub-submit-btn" onclick="submitSubscription()">Subscribe</button>
   </div>
 </div>
 
@@ -1364,17 +1534,26 @@
   function switchTab(name) {
     const layout   = document.getElementById("layout");
     const legPanel = document.getElementById("legislation-panel");
+    const ilPanel  = document.getElementById("il-legislation-panel");
     document.querySelectorAll(".tab-btn").forEach(t =>
       t.classList.toggle("active", t.dataset.tab === name)
     );
     if (name === "legislation") {
       layout.style.display   = "none";
       legPanel.style.display = "block";
+      ilPanel.style.display  = "none";
       document.getElementById("leg-query").focus();
       if (!legRecentLoaded) loadRecentMeetings();
+    } else if (name === "il-legislation") {
+      layout.style.display   = "none";
+      legPanel.style.display = "none";
+      ilPanel.style.display  = "block";
+      document.getElementById("il-leg-query").focus();
+      if (!ilLegRecentLoaded) loadIlRecentBills();
     } else {
       layout.style.display   = "";
       legPanel.style.display = "none";
+      ilPanel.style.display  = "none";
     }
   }
 
@@ -1392,6 +1571,7 @@
   function showLegResults() {
     document.getElementById("leg-search-view").style.display = "";
     document.getElementById("leg-detail-view").style.display = "none";
+    document.getElementById("leg-query").value = "";
   }
 
   function showMeetings() {
@@ -1500,12 +1680,18 @@
       const summary = m.summary
         ? `<div class="leg-meeting-summary">${escLeg(m.summary)}</div>`
         : "";
-      return `<div class="leg-meeting-card" role="listitem" tabindex="0"
-                   onclick="loadMeetingMatters('${escLeg(m.meetingId)}','${escLeg(label)}')"
-                   onkeydown="if(event.key==='Enter')loadMeetingMatters('${escLeg(m.meetingId)}','${escLeg(label)}')">
-        <div class="leg-meeting-header">${label}</div>
-        ${summary}
-        ${counts ? `<div class="leg-meeting-counts">${counts}</div>` : ""}
+      const bodyName = escLeg(m.body || "City Council");
+      return `<div class="leg-meeting-card" role="listitem">
+        <div class="leg-meeting-card-content" tabindex="0"
+             onclick="loadMeetingMatters('${escLeg(m.meetingId)}','${escLeg(label)}')"
+             onkeydown="if(event.key==='Enter')loadMeetingMatters('${escLeg(m.meetingId)}','${escLeg(label)}')">
+          <div class="leg-meeting-header">${label}</div>
+          ${summary}
+          ${counts ? `<div class="leg-meeting-counts">${counts}</div>` : ""}
+        </div>
+        <button class="sub-meeting-card-btn"
+                onclick="openSubModal('meeting','${bodyName}')"
+                aria-label="Subscribe to ${bodyName} meeting updates">✉ Subscribe</button>
       </div>`;
     }).join("");
   }
@@ -1586,6 +1772,7 @@
     e.preventDefault();
     const q = document.getElementById("leg-query").value.trim();
     if (q.length < 2) return;
+    document.getElementById("leg-query").value = "";
     legResultSource = "search";
     legActiveMeetingId = null;
     document.getElementById("leg-results-back-btn").style.display = "none";
@@ -1753,25 +1940,54 @@
       ? `<div class="leg-matter-subtitle">${escLeg(matter.plainLanguageTitle)}</div>`
       : "";
 
-    const typeDescHtml = matter.typeDescription
-      ? `<div class="leg-type-desc"><strong>${escLeg(type)}:</strong> ${escLeg(matter.typeDescription)}</div>`
-      : "";
-
+    // Related documents — links only (summaries move to AI section)
     const reportFilesHtml = (matter.matterAttachments && matter.matterAttachments.length)
-      ? `<div class="leg-timeline-heading">Related Documents</div>` +
+      ? `<div class="leg-timeline-heading" style="margin-top:16px">Related Documents</div>` +
         matter.matterAttachments.map(f => {
-          const url     = escLeg(f.path || f.url || "");
-          const name    = escLeg(f.fileName || f.name || f.type || "Document");
-          const summHtml = f.summary
-            ? `<p class="attachment-summary">${escLeg(f.summary)}</p>`
-            : "";
-          return `<div class="leg-meeting-detail">📄 <a href="${url}" target="_blank" rel="noreferrer">${name}</a>${summHtml}</div>`;
+          const url  = escLeg(f.path || f.url || "");
+          const name = escLeg(f.fileName || f.name || f.type || "Document");
+          return `<div class="leg-meeting-detail" style="margin-top:4px">📄 <a href="${url}" target="_blank" rel="noreferrer">${name}</a></div>`;
         }).join("")
       : "";
 
-    const statusCtxHtml = matter.statusContext
-      ? `<div class="leg-matter-status-context">${escLeg(matter.statusContext)}</div>`
-      : "";
+    // Strip any markdown formatting Claude may have included in AI-generated text
+    function stripMd(s) {
+      return (s || "").replace(/^#+\s*/gm, "").replace(/\*\*/g, "").replace(/\*/g, "").trim();
+    }
+
+    // AI summaries — type explanation, status context, legislation summary from attachments
+    const aiItems = [];
+    if (matter.typeDescription) {
+      const article = /^[aeiou]/i.test(type) ? "an" : "a";
+      aiItems.push(`<div class="ai-summary-item">
+        <div class="ai-summary-label">Type</div>
+        <div class="ai-summary-text">This piece of legislation is ${article} ${escLeg(type)}. ${escLeg(stripMd(matter.typeDescription))}</div>
+      </div>`);
+    }
+    if (matter.statusContext) {
+      aiItems.push(`<div class="ai-summary-item">
+        <div class="ai-summary-label">Status</div>
+        <div class="ai-summary-text">${escLeg(stripMd(matter.statusContext))}</div>
+      </div>`);
+    }
+    // Combine all document summaries into one block; strip markdown from each
+    const docSummaries = (matter.matterAttachments || [])
+      .map(f => stripMd(f.summary)).filter(Boolean);
+    const attachSummary = docSummaries.join(" ");
+    if (attachSummary) {
+      aiItems.push(`<div class="ai-summary-item">
+        <div class="ai-summary-label">Legislation Summary</div>
+        <div class="ai-summary-text">${escLeg(attachSummary)}</div>
+      </div>`);
+    }
+    const aiSummaryHtml = aiItems.length ? `
+      <div class="ai-summary-section">
+        <div class="ai-summary-heading">
+          About This Legislation
+          <span class="ai-tooltip-icon" data-tip="These explanations are auto-generated by AI to make legislation easier to understand. Always verify with official sources.">?</span>
+        </div>
+        ${aiItems.join("")}
+      </div>` : "";
 
     const whatHtml = (matter.whatCanYouDo && matter.whatCanYouDo.length)
       ? `<div class="leg-what-heading">What can you do?</div>` +
@@ -1783,15 +1999,24 @@
           </div>`).join("")
       : "";
 
+    const trackTitle = matter.plainLanguageTitle || matter.title || matter.recordNumber;
+    const isFinal = /^final$/i.test((matter.status || "").replace(/^\d+-/, "").trim())
+      || /pass|adopt|approv|fail|reject|defeat|withdraw|vetoed/i.test(displayStatus);
+    const trackBtn = isFinal
+      ? `<span class="sub-track-final">This matter is ${escLeg(displayStatus.toLowerCase())} — no further updates expected.</span>`
+      : `<button class="sub-track-btn"
+          onclick="openSubModal('matter','${escLeg(matter.recordNumber)}','${escLeg(trackTitle)}')"
+        >✉ Track this matter</button>`;
+
     document.getElementById("leg-detail").innerHTML = `
       <div class="leg-matter-title">${escLeg(matter.title || matter.recordNumber)}</div>
       ${subtitleHtml}
       <div class="leg-matter-meta">${metaParts}</div>
-      ${typeDescHtml}
+      ${trackBtn}
       ${reportFilesHtml}
-      ${statusCtxHtml}
+      ${aiSummaryHtml}
       ${actionsHtml
-        ? `<div class="leg-timeline-heading">Timeline</div>${actionsHtml}`
+        ? `<div class="leg-timeline-heading" style="margin-top:16px">Timeline</div>${actionsHtml}`
         : '<p class="leg-empty">No actions recorded.</p>'}
       ${whatHtml}
     `;
@@ -1802,6 +2027,128 @@
     return String(str)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;")
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // ── Subscription modal ───────────────────────────────────────────────────
+  let _subMode     = null;   // 'meeting' | 'matter'
+  let _subMatterNum = null;
+  let _subBodies   = null;
+
+  async function _loadBodies() {
+    if (_subBodies) return _subBodies;
+    const r = await fetch("/subscribe/bodies");
+    const d = await r.json();
+    _subBodies = d.bodies || [];
+    return _subBodies;
+  }
+
+  async function openSubModal(mode, value, titleText) {
+    _subMode = mode;
+    const modal      = document.getElementById("sub-modal");
+    const titleEl    = document.getElementById("sub-modal-title");
+    const descEl     = document.getElementById("sub-modal-desc");
+    const bodyRow    = document.getElementById("sub-body-row");
+    const matterRow  = document.getElementById("sub-matter-row");
+    const matterChip = document.getElementById("sub-matter-chip");
+    const emailInput = document.getElementById("sub-email-input");
+    const errorEl    = document.getElementById("sub-error");
+    const successEl  = document.getElementById("sub-success");
+    const submitBtn  = document.getElementById("sub-submit-btn");
+
+    emailInput.value = "";
+    emailInput.style.display = "";
+    errorEl.style.display   = "none";
+    successEl.style.display = "none";
+    submitBtn.style.display = "";
+    submitBtn.disabled      = false;
+    submitBtn.textContent   = "Subscribe";
+
+    if (mode === "meeting") {
+      titleEl.textContent = "Get email updates for meetings";
+      descEl.textContent  = "You'll get an email when an agenda is published, and a summary after the meeting wraps up.";
+      bodyRow.style.display   = "";
+      matterRow.style.display = "none";
+      _subMatterNum = null;
+      const bodies = await _loadBodies();
+      const sel = document.getElementById("sub-body-select");
+      sel.innerHTML = bodies.map(b =>
+        `<option value="${escLeg(b)}"${b === value ? " selected" : ""}>${escLeg(b)}</option>`
+      ).join("");
+    } else {
+      titleEl.textContent = "Track this legislation";
+      descEl.textContent  = "You'll get an email when the status of this item changes or it gets scheduled for a meeting.";
+      bodyRow.style.display   = "none";
+      matterRow.style.display = "";
+      _subMatterNum = value;
+      matterChip.textContent = titleText || value;
+    }
+
+    modal.style.display = "flex";
+    setTimeout(() => emailInput.focus(), 50);
+  }
+
+  function closeSubModal() {
+    document.getElementById("sub-modal").style.display = "none";
+  }
+
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && document.getElementById("sub-modal").style.display !== "none")
+      closeSubModal();
+  });
+
+  function submitSubscription() {
+    const emailInput = document.getElementById("sub-email-input");
+    const errorEl    = document.getElementById("sub-error");
+    const successEl  = document.getElementById("sub-success");
+    const submitBtn  = document.getElementById("sub-submit-btn");
+
+    const email = emailInput.value.trim();
+    if (!email || !email.includes("@")) {
+      errorEl.textContent  = "Please enter a valid email address.";
+      errorEl.style.display = "block";
+      emailInput.focus();
+      return;
+    }
+
+    errorEl.style.display = "none";
+    submitBtn.disabled    = true;
+    submitBtn.textContent = "Subscribing…";
+
+    let url, payload;
+    if (_subMode === "meeting") {
+      url     = "/subscribe/meetings";
+      payload = JSON.stringify({ email, body: document.getElementById("sub-body-select").value });
+    } else {
+      url     = "/subscribe/matters";
+      payload = JSON.stringify({ email, record_number: _subMatterNum });
+    }
+
+    fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: payload })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) {
+          errorEl.textContent   = d.error;
+          errorEl.style.display = "block";
+          submitBtn.disabled    = false;
+          submitBtn.textContent = "Subscribe";
+        } else if (d.already_confirmed) {
+          emailInput.style.display = "none";
+          submitBtn.style.display  = "none";
+          successEl.innerHTML = "✓ " + d.message;
+          successEl.style.display  = "block";
+        } else {
+          emailInput.style.display = "none";
+          submitBtn.style.display  = "none";
+          successEl.innerHTML = "✓ " + d.message;
+          successEl.style.display  = "block";
+        }
+      })
+      .catch(() => {
+        errorEl.textContent   = "Could not connect. Please try again.";
+        errorEl.style.display = "block";
+        submitBtn.disabled    = false;
+        submitBtn.textContent = "Subscribe";
+      });
   }
 
   function submitFeedback() {
@@ -1837,6 +2184,149 @@
   // ── Hash-based tab init (e.g. /app#legislation from landing page) ──────────
   if (window.location.hash === "#legislation") {
     switchTab("legislation");
+  } else if (window.location.hash === "#il-legislation") {
+    switchTab("il-legislation");
+  }
+  // ── Query-param deep link: /app?matter=O-2025-1234 (used in email links) ──
+  (function () {
+    const m = new URLSearchParams(window.location.search).get("matter");
+    if (m) { switchTab("legislation"); loadMatter(m); }
+  })();
+
+  // ── Illinois Legislation tab ─────────────────────────────────────────────
+  let ilLegRecentLoaded   = false;
+  let ilLegCurrentResults = [];
+
+  function escIl(s) {
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function showIlLegResults() {
+    document.getElementById("il-leg-search-view").style.display = "";
+    document.getElementById("il-leg-detail-view").style.display = "none";
+  }
+
+  function _ilBillCard(b) {
+    const status = b.status || "";
+    let statusClass = /signed|enacted/i.test(status)  ? "leg-status-passed"
+                    : /vetoed|failed|dead/i.test(status) ? "leg-status-other"
+                    : "leg-status-active";
+    const date = b.last_action_date
+      ? new Date(b.last_action_date).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+      : "";
+    const subtitle = b.plainLanguageTitle && b.plainLanguageTitle !== b.title
+      ? `<div class="leg-card-subtitle">${escIl(b.plainLanguageTitle)}</div>`
+      : "";
+    return `<div class="leg-card" role="listitem" tabindex="0"
+                 onclick="loadIlBill('${escIl(b.bill_id)}')"
+                 onkeydown="if(event.key==='Enter')loadIlBill('${escIl(b.bill_id)}')">
+      <div class="leg-card-title">${escIl(b.bill_number ? b.bill_number + " — " : "")}${escIl(b.title || b.bill_id)}</div>
+      ${subtitle}
+      <div class="leg-card-meta">
+        <span class="${statusClass}">${escIl(status)}</span>
+        ${date ? ` · ${date}` : ""}
+      </div>
+    </div>`;
+  }
+
+  function renderIlResults(bills) {
+    const el = document.getElementById("il-leg-results");
+    if (!bills.length) {
+      el.innerHTML = '<p class="leg-empty">No results found. Try different keywords.</p>';
+      return;
+    }
+    el.innerHTML = bills.map(_ilBillCard).join("");
+  }
+
+  function loadIlRecentBills() {
+    ilLegRecentLoaded = true;
+    const el = document.getElementById("il-leg-results");
+    const hd = document.getElementById("il-leg-results-header");
+    el.innerHTML = '<p class="leg-loading">Loading recent Illinois bills…</p>';
+    fetch("/illinois/legislation/recent")
+      .then(r => r.json())
+      .then(data => {
+        ilLegCurrentResults = data.bills || [];
+        hd.textContent = `${ilLegCurrentResults.length} recent Illinois bills`;
+        hd.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
+        renderIlResults(ilLegCurrentResults);
+      })
+      .catch(() => {
+        el.innerHTML = '<p class="leg-empty">Could not load recent bills. Please try again.</p>';
+      });
+  }
+
+  function searchIlLegislation(e) {
+    e.preventDefault();
+    const q = document.getElementById("il-leg-query").value.trim();
+    if (q.length < 2) return;
+    const btn = document.getElementById("il-leg-search-btn");
+    const el  = document.getElementById("il-leg-results");
+    const hd  = document.getElementById("il-leg-results-header");
+    btn.disabled    = true;
+    btn.textContent = "Searching…";
+    el.innerHTML    = '<p class="leg-loading">Searching Illinois legislation…</p>';
+    hd.style.display = "none";
+    fetch("/illinois/legislation/search?q=" + encodeURIComponent(q))
+      .then(r => r.json())
+      .then(data => {
+        ilLegCurrentResults = data.bills || [];
+        hd.textContent = `${ilLegCurrentResults.length} result${ilLegCurrentResults.length !== 1 ? "s" : ""} for "${q}"`;
+        hd.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
+        renderIlResults(ilLegCurrentResults);
+      })
+      .catch(() => {
+        el.innerHTML = '<p class="leg-empty">Search failed. Please try again.</p>';
+        hd.style.display = "none";
+      })
+      .finally(() => {
+        btn.disabled    = false;
+        btn.textContent = "Search";
+      });
+  }
+
+  function loadIlBill(billId) {
+    const detailEl   = document.getElementById("il-leg-detail");
+    const detailView = document.getElementById("il-leg-detail-view");
+    document.getElementById("il-leg-search-view").style.display = "none";
+    detailView.style.display = "";
+    detailEl.innerHTML = '<p class="leg-loading">Loading bill details…</p>';
+    fetch("/illinois/legislation/bills/" + encodeURIComponent(billId))
+      .then(r => r.json())
+      .then(bill => {
+        const status = (bill.status || "").replace(/^\d+-/, "");
+        const sponsor = (bill.sponsors || []).find(s => s.sponsor_type_id === 1);
+        const sponsorName = sponsor ? sponsor.name : "";
+        const lastAction = bill.history && bill.history.length
+          ? bill.history[bill.history.length - 1]
+          : null;
+        const statusCtx = bill.statusContext
+          ? `<div class="leg-status-ctx">${escIl(bill.statusContext)}</div>` : "";
+        const typeDesc = bill.typeDescription
+          ? `<div class="leg-type-desc"><strong>Bill type:</strong> ${escIl(bill.typeDescription)}</div>` : "";
+        const whatHtml = (bill.whatCanYouDo || []).map(a =>
+          `<div class="leg-action">
+            <strong>${escIl(a.action)}</strong> — ${escIl(a.detail)}
+            ${a.link ? `<br><a href="${escIl(a.link)}" target="_blank" rel="noopener">${escIl(a.linkText || a.link)}</a>` : ""}
+          </div>`
+        ).join("");
+        detailEl.innerHTML = `
+          <h2 class="leg-detail-title">${escIl(bill.bill_number || "")} ${escIl(bill.title || "")}</h2>
+          ${bill.plainLanguageTitle ? `<p class="leg-plain-title">${escIl(bill.plainLanguageTitle)}</p>` : ""}
+          ${typeDesc}
+          <div class="leg-detail-meta">
+            <span>Status: <strong>${escIl(status)}</strong></span>
+            ${sponsorName ? ` · Sponsor: <strong>${escIl(sponsorName)}</strong>` : ""}
+          </div>
+          ${statusCtx}
+          ${lastAction ? `<div class="leg-last-action"><strong>Last action:</strong> ${escIl(lastAction.action || lastAction.description || "")} (${escIl(lastAction.date || "")})</div>` : ""}
+          ${bill.url ? `<div style="margin-top:10px"><a href="${escIl(bill.url)}" target="_blank" rel="noopener">View on ILGA.gov →</a></div>` : ""}
+          ${whatHtml ? `<div class="leg-what-can-you-do"><h3>What can you do?</h3>${whatHtml}</div>` : ""}
+        `;
+      })
+      .catch(() => {
+        detailEl.innerHTML = '<p class="leg-empty">Could not load this bill. Please try again.</p>';
+      });
   }
 </script>
 </body>

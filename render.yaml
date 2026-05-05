@@ -13,4 +13,8 @@ services:
         sync: false          # Supabase connection string — set manually in Render dashboard
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
     plan: free

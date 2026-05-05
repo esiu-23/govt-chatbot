@@ -6,5 +6,5 @@ timeout = 300
 
 def post_fork(server, worker):
     """Connect to Supabase and initialise the Voyage AI client inside each worker."""
-    import api
-    api.load_resources()
+    from app.resources import load_resources
+    load_resources()

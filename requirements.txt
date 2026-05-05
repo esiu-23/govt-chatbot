@@ -10,3 +10,5 @@ numpy>=1.24.0,<2.0
 python-dotenv>=1.0.0
 certifi>=2024.0.0
 pypdf>=4.0.0
+resend>=2.0.0
+apscheduler>=3.10.0

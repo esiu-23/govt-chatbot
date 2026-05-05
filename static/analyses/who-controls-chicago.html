@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Who Controls Chicago? — Chicago Civic Tools</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #003F87;
+      color: #fff;
+      padding: 0;
+    }
+
+    .flag-bar {
+      display: flex;
+      height: 5px;
+    }
+    .flag-bar .blue  { background: #003F87; flex: 1; }
+    .flag-bar .white { background: #fff;    flex: 1; }
+    .flag-bar .red   { background: #c8102e; flex: 1; }
+
+    .header-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px 24px 28px;
+    }
+
+    .breadcrumb {
+      display: inline-block;
+      color: rgba(255,255,255,0.75);
+      text-decoration: none;
+      font-size: 0.85rem;
+      margin-bottom: 14px;
+      transition: color 0.15s;
+    }
+    .breadcrumb:hover { color: #fff; }
+
+    .header-inner h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+      line-height: 1.15;
+    }
+
+    .header-subtitle {
+      font-size: 0.92rem;
+      opacity: 0.75;
+    }
+
+    /* ── Main layout ── */
+    main {
+      flex: 1;
+      max-width: 960px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 40px 24px 72px;
+    }
+
+    .article-intro {
+      font-size: 1.05rem;
+      line-height: 1.7;
+      color: #333;
+      margin-bottom: 40px;
+      max-width: 820px;
+    }
+
+    /* ── Section cards ── */
+    .viz-section {
+      background: #fff;
+      border: 1px solid #dde3ed;
+      border-radius: 12px;
+      padding: 32px;
+      margin-bottom: 32px;
+    }
+
+    .viz-section h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #003F87;
+      margin-bottom: 6px;
+    }
+
+    .section-subtitle {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    /* ── Loading / error states ── */
+    .loading-msg {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #718096;
+      font-size: 0.9rem;
+      padding: 20px 0;
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #dde3ed;
+      border-top-color: #003F87;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-msg {
+      background: #fff5f5;
+      border: 1px solid #fed7d7;
+      border-radius: 8px;
+      padding: 14px 18px;
+      color: #c53030;
+      font-size: 0.88rem;
+    }
+
+    .no-data {
+      color: #718096;
+      font-style: italic;
+    }
+
+    /* ── Treemap ── */
+    #org-chart-container {
+      overflow-x: auto;
+      min-height: 300px;
+      margin-bottom: 20px;
+    }
+
+    #org-chart-svg {
+      display: block;
+    }
+
+    .tm-label {
+      width: 100%;
+      height: 100%;
+      padding: 5px 7px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      box-sizing: border-box;
+    }
+
+    .tm-name {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #1a1a2e;
+      line-height: 1.25;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .tm-amt {
+      font-size: 0.65rem;
+      color: #444;
+      margin-top: 3px;
+      font-weight: 500;
+    }
+
+    .tm-drill {
+      font-size: 0.6rem;
+      color: #003F87;
+      margin-top: 4px;
+      font-weight: 600;
+    }
+
+    .tm-note {
+      font-size: 0.6rem;
+      color: #6d28d9;
+      margin-top: 2px;
+      font-style: italic;
+    }
+
+    .tm-cell { cursor: default; }
+    .tm-cell.clickable { cursor: pointer; }
+    .tm-cell.clickable rect { transition: opacity 0.1s; }
+    .tm-cell.clickable:hover rect { opacity: 0.82; }
+
+    /* Badge styles kept for detail panel */
+    .badge-elected   { background: #fef3c7; color: #92400e; }
+    .badge-appointed { background: #e8eff9; color: #003F87; }
+    .badge-root      { background: #d1fae5; color: #065f46; }
+    .badge-channel   { background: #ede9fe; color: #5b21b6; }
+
+    /* chart legend */
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 8px;
+      margin-bottom: 16px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: #555;
+    }
+
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* ── Detail panel ── */
+    #detail-panel {
+      display: none;
+      background: #fff;
+      border: 1px solid #dde3ed;
+      border-radius: 10px;
+      padding: 24px 28px;
+      margin-top: 20px;
+    }
+
+    #detail-panel.visible { display: block; }
+
+    #detail-panel h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #003F87;
+      margin-bottom: 16px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 32px;
+    }
+
+    @media (max-width: 640px) {
+      .detail-grid { grid-template-columns: 1fr; }
+    }
+
+    .detail-row {
+      border-bottom: 1px solid #f0f2f7;
+      padding-bottom: 8px;
+    }
+
+    .detail-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #888;
+      margin-bottom: 2px;
+    }
+
+    .detail-value {
+      font-size: 0.92rem;
+      color: #1a1a2e;
+    }
+
+    .detail-note {
+      margin-top: 14px;
+      background: #f0f6ff;
+      border-left: 3px solid #003F87;
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      color: #333;
+      border-radius: 0 6px 6px 0;
+    }
+
+    /* ── Budget vs. Actual comparison ── */
+    #dp-comparison {
+      margin-top: 20px;
+      display: none;
+    }
+    .comparison-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #888;
+      margin-bottom: 10px;
+    }
+    .comparison-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .cmp-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.82rem;
+    }
+    .cmp-label {
+      width: 140px;
+      flex-shrink: 0;
+      color: #555;
+    }
+    .cmp-bar-track {
+      flex: 1;
+      height: 14px;
+      background: #f0f2f7;
+      border-radius: 7px;
+      overflow: hidden;
+    }
+    .cmp-bar-fill {
+      height: 100%;
+      border-radius: 7px;
+      transition: width 0.4s ease;
+    }
+    .cmp-bar-fill.budget  { background: #003F87; }
+    .cmp-bar-fill.paid    { background: #22c55e; }
+    .cmp-bar-fill.over    { background: #ef4444; }
+    .cmp-amt {
+      width: 70px;
+      text-align: right;
+      font-weight: 600;
+      color: #1a1a2e;
+      flex-shrink: 0;
+    }
+    .cmp-note {
+      font-size: 0.72rem;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    /* ── Budget line items breakdown ── */
+    #dp-line-items {
+      margin-top: 20px;
+      display: none;
+    }
+    .li-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #888;
+      margin-bottom: 10px;
+    }
+    .li-group {
+      border: 1px solid #e8edf5;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    .li-group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 9px 14px;
+      background: #f5f7fb;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #1a1a2e;
+      user-select: none;
+    }
+    .li-group-header:hover { background: #eef1f8; }
+    .li-group-total {
+      font-size: 0.82rem;
+      color: #003F87;
+      font-weight: 700;
+    }
+    .li-group-chevron {
+      font-size: 0.7rem;
+      color: #888;
+      transition: transform 0.2s;
+      margin-left: 8px;
+    }
+    .li-group.open .li-group-chevron { transform: rotate(90deg); }
+    .li-accounts {
+      display: none;
+      padding: 4px 0;
+    }
+    .li-group.open .li-accounts { display: block; }
+    .li-account-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 14px 5px 24px;
+      font-size: 0.8rem;
+      border-bottom: 1px solid #f3f4f8;
+      color: #444;
+    }
+    .li-account-row:last-child { border-bottom: none; }
+    .li-account-amt {
+      font-weight: 600;
+      color: #1a1a2e;
+      white-space: nowrap;
+      margin-left: 12px;
+    }
+    .li-loading {
+      font-size: 0.85rem;
+      color: #888;
+      padding: 10px 0;
+    }
+
+    /* ── Spending streams table ── */
+    .streams-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    .streams-table th {
+      background: #003F87;
+      color: #fff;
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    .streams-table th:first-child { border-radius: 8px 0 0 0; }
+    .streams-table th:last-child  { border-radius: 0 8px 0 0; }
+
+    .streams-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #edf0f5;
+      vertical-align: top;
+    }
+
+    .streams-table tr:nth-child(even) td { background: #f5f7fa; }
+    .streams-table tr:last-child td { border-bottom: none; }
+
+    .in-portal   { color: #276749; font-weight: 600; }
+    .not-portal  { color: #c53030; font-weight: 600; }
+    .part-portal { color: #7b5e00; font-weight: 600; }
+
+    .dataset-ref {
+      font-size: 0.75rem;
+      color: #555;
+      margin-top: 2px;
+    }
+
+    /* ── Ward map ── */
+    #tif-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      font-size: 0.88rem;
+      color: #444;
+    }
+
+    #tif-toggle {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: #003F87;
+    }
+
+    #ward-map {
+      height: 520px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #dde3ed;
+    }
+
+    #map-status {
+      margin-top: 10px;
+      font-size: 0.8rem;
+      color: #666;
+    }
+
+    /* ── Data footer ── */
+    .data-footer {
+      background: #fff;
+      border: 1px solid #dde3ed;
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin-top: 8px;
+    }
+
+    .data-footer h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #003F87;
+      margin-bottom: 14px;
+    }
+
+    .data-footer ul {
+      list-style: none;
+      margin-bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .data-footer li {
+      font-size: 0.85rem;
+      color: #444;
+    }
+
+    .data-footer a {
+      color: #003F87;
+      text-decoration: none;
+    }
+    .data-footer a:hover { text-decoration: underline; }
+
+    .data-footer p {
+      font-size: 0.8rem;
+      color: #888;
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+
+    /* ── Page footer ── */
+    footer {
+      border-top: 1px solid #dde3ed;
+      padding: 20px 24px;
+      text-align: center;
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    footer a { color: #888; }
+    footer a:hover { color: #003F87; }
+
+    /* ── Mobile ── */
+    @media (max-width: 640px) {
+      .header-inner h1 { font-size: 1.45rem; }
+      .viz-section { padding: 20px 16px; }
+      .data-footer { padding: 20px 18px; }
+      .streams-table { font-size: 0.78rem; }
+      .streams-table th, .streams-table td { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="flag-bar">
+    <div class="blue"></div><div class="white"></div><div class="blue"></div>
+    <div class="white"></div><div class="red"></div><div class="white"></div>
+  </div>
+  <div class="header-inner">
+    <a class="breadcrumb" href="/">&#8592; Back</a>
+    <h1>Who Controls Chicago?</h1>
+    <p class="header-subtitle">Analysis 1 &middot; Decision-makers, spending, and accountability in city government</p>
+  </div>
+</header>
+
+<main>
+  <p class="article-intro">
+    Chicago's government has two kinds of leaders: those you elect, and those they appoint. This analysis maps
+    who holds decision-making power, how much money flows through their control, and — where the data allows —
+    who put them there. Where information is not available in the Chicago Open Data portal, fields are left blank.
+  </p>
+
+  <!-- Section 1: Treemap -->
+  <div class="viz-section">
+    <h2>Where the Money Goes</h2>
+    <p class="section-subtitle">
+      Each rectangle is sized by 2026 budget appropriation (dataset 6694-f78c).
+      City Council approves the full budget — click it to see individual department allocations.
+      The Mayor's box shows only the Mayor's Office operating budget; all department budgets flow through Council.
+      Click any cell to see details.
+    </p>
+
+    <div class="chart-legend">
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#fef3c7; border: 2px solid #d4a017;"></div>
+        <span>Elected by residents</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#dbeafe; border: 2px solid #003F87;"></div>
+        <span>Appointed by Mayor Johnson</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#f1f5f9; border: 2px solid #718096;"></div>
+        <span>Appointed — appointer not in open data</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#ede9fe; border: 2px solid #6d28d9;"></div>
+        <span>City-wide obligations (no single dept)</span>
+      </div>
+    </div>
+
+    <div id="chart-status" class="loading-msg">
+      <div class="spinner"></div>
+      <span>Loading financial data from Chicago Open Data&hellip;</span>
+    </div>
+
+    <div id="tm-breadcrumb" style="display:none; align-items:center; gap:8px; margin-bottom:12px; font-size:0.85rem; color:#555;">
+      <button id="tm-back-btn" style="background:none; border:1px solid #dde3ed; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:0.82rem; color:#003F87;">&#8592; All offices</button>
+      <span id="tm-crumb-name" style="font-weight:600; color:#1a1a2e;"></span>
+      <span style="color:#aaa;">— click a department to see details</span>
+    </div>
+
+    <div id="org-chart-container" style="display:none;">
+      <svg id="org-chart-svg"></svg>
+    </div>
+
+    <div id="detail-panel">
+      <h3 id="dp-title"></h3>
+      <div class="detail-grid" id="dp-grid"></div>
+      <div id="dp-note" class="detail-note" style="display:none;"></div>
+
+      <div id="dp-comparison">
+        <div class="comparison-title">Budget vs. Actual (2026 Appropriated / 2025 Paid)</div>
+        <div class="comparison-bars" id="dp-cmp-bars"></div>
+        <div class="cmp-note">2025 full-year vendor payments vs. 2026 budgeted appropriation. Different fiscal years — use as a rough benchmark only.</div>
+      </div>
+
+      <div id="dp-line-items">
+        <div class="li-title">2026 Budget Line Items</div>
+        <div id="dp-li-content"><div class="li-loading">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 2: Spending streams -->
+  <div class="viz-section">
+    <h2>How Money Flows Through City Government</h2>
+    <p class="section-subtitle">
+      Multiple channels control how city money is spent. Some are fully transparent in open data; others are not.
+    </p>
+    <table class="streams-table">
+      <thead>
+        <tr>
+          <th>Channel</th>
+          <th>Who Controls It</th>
+          <th>Approver Type</th>
+          <th>In Open Data?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>City budget appropriations</td>
+          <td>City Council votes; Mayor proposes</td>
+          <td>Elected</td>
+          <td>
+            <span class="in-portal">&#10003; Yes</span>
+            <div class="dataset-ref">dataset 6694-f78c</div>
+          </td>
+        </tr>
+        <tr>
+          <td>Department contracts</td>
+          <td>Department commissioner (appointed)</td>
+          <td>Appointed</td>
+          <td>
+            <span class="in-portal">&#10003; Yes</span>
+            <div class="dataset-ref">dataset rsxa-ify5</div>
+          </td>
+        </tr>
+        <tr>
+          <td>Vendor payments</td>
+          <td>Department commissioner (appointed)</td>
+          <td>Appointed</td>
+          <td>
+            <span class="in-portal">&#10003; Yes</span>
+            <div class="dataset-ref">dataset pkr3-4xv7</div>
+          </td>
+        </tr>
+        <tr>
+          <td>TIF district creation</td>
+          <td>City Council votes</td>
+          <td>Elected</td>
+          <td>
+            <span class="in-portal">&#10003; Yes</span>
+            <div class="dataset-ref">boundaries fz5x-7zak</div>
+          </td>
+        </tr>
+        <tr>
+          <td>TIF spending administration</td>
+          <td>Planning &amp; Development Commissioner</td>
+          <td>Appointed</td>
+          <td>
+            <span class="in-portal">&#10003; Yes</span>
+            <div class="dataset-ref">dataset umwj-yc4m</div>
+          </td>
+        </tr>
+        <tr>
+          <td>Delegate agency contracts</td>
+          <td>Budget &amp; Management</td>
+          <td>Appointed</td>
+          <td>
+            <span class="in-portal">&#10003; Yes</span>
+            <div class="dataset-ref">within rsxa-ify5</div>
+          </td>
+        </tr>
+        <tr>
+          <td>Special Service Areas (SSA)</td>
+          <td>Local SSA boards + City Council</td>
+          <td>Mixed</td>
+          <td><span class="not-portal">&#10007; Not in portal</span></td>
+        </tr>
+        <tr>
+          <td>Chicago Housing Authority</td>
+          <td>CHA Board (Mayor-appointed)</td>
+          <td>Appointed</td>
+          <td><span class="not-portal">&#10007; Not in portal</span></td>
+        </tr>
+        <tr>
+          <td>Chicago Transit Authority</td>
+          <td>CTA Board (Mayor + Governor)</td>
+          <td>Appointed</td>
+          <td><span class="not-portal">&#10007; Not in portal</span></td>
+        </tr>
+        <tr>
+          <td>Bond proceeds</td>
+          <td>City Council authorizes; Finance manages</td>
+          <td>Elected / Appointed</td>
+          <td><span class="part-portal">&#8776; Partial</span>
+            <div class="dataset-ref">budget fund types only</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Section 3: Ward map -->
+  <div class="viz-section">
+    <h2>Who Represents Your Neighborhood?</h2>
+    <p class="section-subtitle">
+      Chicago's 50 wards, each represented by an elected alderman. Toggle TIF districts to see
+      areas where special tax revenue is redirected for local development (administered by the
+      Planning &amp; Development Commissioner, not voted on annually by Council).
+    </p>
+
+    <div id="tif-toggle-row">
+      <input type="checkbox" id="tif-toggle" />
+      <label for="tif-toggle">Show TIF districts (off-budget spending)</label>
+    </div>
+
+    <div id="map-loading" class="loading-msg">
+      <div class="spinner"></div>
+      <span>Loading ward boundaries&hellip;</span>
+    </div>
+
+    <div id="ward-map"></div>
+    <div id="map-status"></div>
+  </div>
+
+  <!-- Data citations -->
+  <div class="data-footer">
+    <h3>Data Sources</h3>
+    <ul>
+      <li>Employee salaries: <a href="https://data.cityofchicago.org/Administration-Finance/Current-Employee-Names-Salaries-and-Position-Title/xzkq-xp2w" target="_blank" rel="noreferrer">xzkq-xp2w</a></li>
+      <li>2026 Budget appropriations: <a href="https://data.cityofchicago.org/Administration-Finance/Budget-2026-Budget-Ordinance-Appropriations/6694-f78c" target="_blank" rel="noreferrer">6694-f78c</a></li>
+      <li>Contracts: <a href="https://data.cityofchicago.org/Administration-Finance/Contracts/rsxa-ify5" target="_blank" rel="noreferrer">rsxa-ify5</a></li>
+      <li>Vendor payments: <a href="https://data.cityofchicago.org/Administration-Finance/Vendor-Payments/pkr3-4xv7" target="_blank" rel="noreferrer">pkr3-4xv7</a></li>
+      <li>TIF annual expenditures: <a href="https://data.cityofchicago.org/Community-Economic-Development/Tax-Increment-Financing-TIF-Annual-Report-Itemized/umwj-yc4m" target="_blank" rel="noreferrer">umwj-yc4m</a></li>
+      <li>TIF district boundaries: <a href="https://data.cityofchicago.org/Community-Economic-Development/Boundaries-Tax-Increment-Financing-Districts/fz5x-7zak" target="_blank" rel="noreferrer">fz5x-7zak</a></li>
+      <li>Ward boundaries: dataset igwz-8jzy</li>
+    </ul>
+    <p>Government structural information (elected/appointed status, officeholder names) sourced from public record. Appointment dates not available in open data.</p>
+    <p>Data retrieved from Chicago Open Data portal. May not reflect most recent changes.</p>
+  </div>
+</main>
+
+<footer>
+  Data from <a href="https://data.cityofchicago.org" target="_blank" rel="noreferrer">Chicago Open Data Portal</a>
+  &amp; <a href="https://chicago.gov" target="_blank" rel="noreferrer">chicago.gov</a>
+</footer>
+
+<script>
+/* ─────────────────────────────────────────────
+   Government structure data
+───────────────────────────────────────────── */
+const GOV_TREE = {
+  id: 'root', name: 'City of Chicago', type: 'root',
+  children: null,
+  _children: [
+    {
+      id: 'council', name: 'City Council', role: '50 Aldermen (elected by ward)', type: 'elected',
+      officeholder: '50 aldermen — see map below',
+      deptKeys: ['CITY COUNCIL'],
+      note: 'Votes to approve the full city budget ordinance, TIF district creation, and contracts above ~$25,000. All department and city-wide budgets require City Council approval.',
+      children: null,
+      _children: [
+        { id: 'police',      name: 'Police',                              role: 'Superintendent',            type: 'appointed', appointedBy: 'Johnson', deptKeys: ['POLICE', 'CHICAGO POLICE DEPARTMENT'] },
+        { id: 'fire',        name: 'Fire',                                role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['FIRE', 'CHICAGO FIRE DEPARTMENT'] },
+        { id: 'streets',     name: 'Streets & Sanitation',                role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['STREETS & SANITATION', 'DEPARTMENT OF STREETS AND SANITATION'] },
+        { id: 'cdot',        name: 'Transportation',                      role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['TRANSPORTATION', 'CHICAGO DEPARTMENT OF TRANSPORTATION'] },
+        { id: 'water',       name: 'Water Management',                    role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['WATER MANAGEMENT', 'DEPARTMENT OF WATER MANAGEMENT'] },
+        { id: 'buildings',   name: 'Buildings',                           role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['BUILDINGS', 'DEPARTMENT OF BUILDINGS'] },
+        { id: 'bacp',        name: 'Business Affairs & Consumer Protection', role: 'Commissioner',           type: 'appointed', appointedBy: null,      deptKeys: ['BUSINESS AFFAIRS & CONSUMER PROTECTION', 'DEPARTMENT OF BUSINESS AFFAIRS AND CONSUMER PROTECTION'] },
+        { id: 'health',      name: 'Public Health',                       role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['PUBLIC HEALTH', 'CHICAGO DEPARTMENT OF PUBLIC HEALTH'] },
+        { id: 'dpd',         name: 'Planning & Development',              role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['PLANNING & DEVELOPMENT', 'DEPARTMENT OF PLANNING AND DEVELOPMENT'], controlsTIF: true,
+          note: 'Administers Tax Increment Financing (TIF) districts; TIF spending is off-budget and separately approved by City Council' },
+        { id: 'aviation',    name: 'Aviation',                            role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['AVIATION', 'CHICAGO DEPARTMENT OF AVIATION'] },
+        { id: 'dfss',        name: 'Family & Support Services',           role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['FAMILY & SUPPORT SERVICES', 'DEPARTMENT OF FAMILY AND SUPPORT SERVICES'] },
+        { id: 'housing',     name: 'Housing',                             role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['HOUSING', 'DEPARTMENT OF HOUSING'] },
+        { id: 'law',         name: 'Law',                                 role: 'Corporation Counsel',       type: 'appointed', appointedBy: null,      deptKeys: ['LAW', 'DEPARTMENT OF LAW'] },
+        { id: 'obm',         name: 'Budget & Management',                 role: 'Budget Director',           type: 'appointed', appointedBy: null,      deptKeys: ['BUDGET & MANAGEMENT', 'OFFICE OF BUDGET & MANAGEMENT', 'OFFICE OF BUDGET AND MANAGEMENT'],
+          note: 'Manages delegate agency contracts (grants to nonprofits)' },
+        { id: 'finance',     name: 'Finance',                             role: 'CFO / Director',            type: 'appointed', appointedBy: null,      deptKeys: ['FINANCE', 'DEPARTMENT OF FINANCE'] },
+        { id: 'fleet',       name: 'Fleet & Facility Mgmt',               role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['FLEET AND FACILITY MANAGEMENT', 'FLEET & FACILITY MGMT', 'DEPARTMENT OF FLEET AND FACILITY MANAGEMENT'] },
+        { id: 'cultural',    name: 'Cultural Affairs & Special Events',   role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['CULTURAL AFFAIRS AND SPECIAL EVENTS', 'CULTURAL AFFAIRS & SPECIAL EVENTS', 'DEPARTMENT OF CULTURAL AFFAIRS AND SPECIAL EVENTS'] },
+        { id: 'env',         name: 'Environment',                         role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['ENVIRONMENT', 'DEPARTMENT OF ENVIRONMENT'] },
+        { id: 'cacc',        name: 'Animal Care & Control',               role: 'Executive Director',        type: 'appointed', appointedBy: null,      deptKeys: ['ANIMAL CARE AND CONTROL', 'ANIMAL CARE & CONTROL', 'CHICAGO ANIMAL CARE AND CONTROL'] },
+        { id: 'library',     name: 'Chicago Public Library',              role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['CHICAGO PUBLIC LIBRARY'] },
+        { id: 'oemc',        name: 'Emergency Mgmt & Communications',     role: 'Executive Director',        type: 'appointed', appointedBy: null,      deptKeys: ['OFFICE OF EMERGENCY MANAGEMENT AND COMMUNICATIONS', 'EMERGENCY MANAGEMENT AND COMMUNICATIONS'] },
+        { id: 'procurement', name: 'Procurement Services',                role: 'Chief Procurement Officer', type: 'appointed', appointedBy: null,      deptKeys: ['DEPARTMENT OF PROCUREMENT SERVICES', 'PROCUREMENT SERVICES'] },
+        { id: 'hr',          name: 'Human Resources',                     role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['HUMAN RESOURCES', 'DEPARTMENT OF HUMAN RESOURCES'] },
+        { id: 'dti',         name: 'Technology & Innovation',             role: 'Chief Information Officer', type: 'appointed', appointedBy: null,      deptKeys: ['TECHNOLOGY AND INNOVATION', 'DEPARTMENT OF TECHNOLOGY AND INNOVATION'] },
+        { id: 'mopd',        name: "Mayor's Office for People w/ Disabilities", role: 'Executive Director', type: 'appointed', appointedBy: null,      deptKeys: ['MAYORS OFFICE FOR PEOPLE WITH DISABILITIES', "MAYOR'S OFFICE FOR PEOPLE WITH DISABILITIES"] },
+        { id: 'admhear',     name: 'Administrative Hearings',             role: 'Director',                  type: 'appointed', appointedBy: null,      deptKeys: ['ADMINISTRATIVE HEARING', 'DEPARTMENT OF ADMINISTRATIVE HEARING', 'DEPARTMENT OF ADMINISTRATIVE HEARINGS'] },
+        { id: 'opsa',        name: 'Public Safety Administration',        role: 'Executive Director',        type: 'appointed', appointedBy: null,      deptKeys: ['OFFICE OF PUBLIC SAFETY ADMINISTRATION', 'PUBLIC SAFETY ADMINISTRATION'] },
+        { id: 'humanrel',    name: 'Human Relations',                     role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['CHICAGO COMMISSION ON HUMAN RELATIONS', 'COMMISSION ON HUMAN RELATIONS'] },
+        { id: 'ais',         name: 'Assets, Information & Services',      role: 'Commissioner',              type: 'appointed', appointedBy: null,      deptKeys: ['ASSETS INFORMATION AND SERVICES', 'DEPARTMENT OF ASSETS INFORMATION AND SERVICES'] },
+        { id: 'finance_general', name: 'Finance General', role: 'City-wide Budget Obligations', type: 'channel',
+          deptKeys: ['Finance General', 'FINANCE GENERAL'],
+          children: null, _children: null,
+          note: 'City-wide budget line covering pension fund contributions (MEABF, PABF, FABF, LABF), debt service, intergovernmental transfers to Cook County and CPS, and corporate fund reserves. Approved by City Council as part of the budget ordinance.' },
+        { id: 'tif', name: 'TIF Districts', role: 'Off-budget, Council-approved', type: 'channel',
+          deptKeys: [], children: null, _children: null,
+          note: 'Tax Increment Financing districts are created by City Council vote. Spending is administered by Planning & Development. TIF funds are off-budget — not in the 2026 appropriations dataset.' },
+        { id: 'independent_offices', name: 'Independent Offices', role: 'Boards & Commissions', type: 'appointed',
+          deptKeys: ['BOARD OF ELECTION COMMISSIONERS', 'CIVILIAN OFFICE OF POLICE ACCOUNTABILITY',
+                     'OFFICE OF INSPECTOR GENERAL', 'COMMUNITY COMMISSION FOR PUBLIC SAFETY AND ACCOUNTABILITY',
+                     'BOARD OF ETHICS', 'CHICAGO POLICE BOARD', 'LICENSE APPEAL COMMISSION'],
+          children: null, _children: null,
+          note: 'Independent bodies with budgets approved by City Council: Board of Elections, Civilian Office of Police Accountability (COPA), Inspector General, Board of Ethics, Police Board, License Appeal Commission.' }
+      ]
+    },
+    {
+      id: 'mayor', name: 'Mayor', role: 'Mayor', type: 'elected',
+      officeholder: 'Brandon Johnson', electedYear: 2023,
+      deptKeys: ["MAYOR'S OFFICE", 'OFFICE OF THE MAYOR'],
+      note: "Proposes the city budget and appoints all department commissioners. Can issue contracts under ~$25,000 without City Council approval. The Mayor's Office budget shown here covers only the office's own operations — all department budgets are approved by City Council.",
+      children: null, _children: null
+    },
+    {
+      id: 'clerk', name: 'City Clerk', role: 'City Clerk', type: 'elected',
+      officeholder: 'Anna Valencia', electedYear: 2019,
+      deptKeys: ['CITY CLERK', 'OFFICE OF CITY CLERK'], children: null, _children: null,
+      note: 'Maintains official city records; issues business licenses'
+    },
+    {
+      id: 'treasurer', name: 'City Treasurer', role: 'City Treasurer', type: 'elected',
+      officeholder: 'Melissa Conyears-Ervin', electedYear: 2019,
+      deptKeys: ['CITY TREASURER', 'TREASURER', "CITY TREASURER'S OFFICE"], children: null, _children: null,
+      note: 'Manages city investments and pension fund oversight'
+    }
+  ]
+};
+
+/* ─────────────────────────────────────────────
+   Department key → node lookup
+───────────────────────────────────────────── */
+const deptMap = {};
+
+function buildDeptMap(node) {
+  if (node.deptKeys) {
+    node.deptKeys.forEach(k => { deptMap[k.toUpperCase().trim()] = node; });
+  }
+  const kids = node.children || node._children || [];
+  kids.forEach(buildDeptMap);
+}
+buildDeptMap(GOV_TREE);
+
+/* ─────────────────────────────────────────────
+   Formatting helpers
+───────────────────────────────────────────── */
+function fmt$(val) {
+  if (val == null || val === '' || isNaN(Number(val))) return null;
+  const n = Number(val);
+  if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(0) + 'K';
+  return '$' + n.toFixed(0);
+}
+
+function fmtNum(val) {
+  if (val == null || isNaN(Number(val))) return null;
+  return Number(val).toLocaleString();
+}
+
+function noData(label) {
+  return `<span class="no-data">${label || '— not in open data'}</span>`;
+}
+
+/* ─────────────────────────────────────────────
+   API fetch helpers
+───────────────────────────────────────────── */
+async function socrataFetch(url) {
+  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+/* ─────────────────────────────────────────────
+   Load all financial data and attach to nodes
+───────────────────────────────────────────── */
+async function loadFinancialData() {
+  const BASE = 'https://data.cityofchicago.org/resource';
+
+  const [budgetRes, contractsRes, vendorRes, headcountRes, execRes] = await Promise.allSettled([
+    socrataFetch(`${BASE}/6694-f78c.json?$select=department_description,sum(_ordinance_amount_)%20as%20budget&$group=department_description&$limit=200`),
+    socrataFetch(`${BASE}/rsxa-ify5.json?$select=department,sum(award_amount)%20as%20contracts&$group=department&$limit=200`),
+    socrataFetch(`${BASE}/pkr3-4xv7.json?$select=department_name,sum(amount)%20as%20vendor_total&$group=department_name&$limit=200`),
+    socrataFetch(`${BASE}/xzkq-xp2w.json?$select=department,count(*)%20as%20headcount&$group=department&$limit=200`),
+    socrataFetch(`${BASE}/xzkq-xp2w.json?$where=job_titles%20like%20'%25COMMISSIONER%25'%20OR%20job_titles%20like%20'%25SUPERINTENDENT%25'%20OR%20job_titles%20like%20'%25MAYOR%25'%20OR%20job_titles%20like%20'%25DIRECTOR%25'%20OR%20job_titles%20like%20'%25TREASURER%25'%20OR%20job_titles%20like%20'%25CLERK%25'&$limit=200`)
+  ]);
+
+  function attach(rows, keyField, valField, prop) {
+    if (!rows) return;
+    rows.forEach(row => {
+      const key = (row[keyField] || '').toUpperCase().trim();
+      const node = deptMap[key];
+      if (node && row[valField] != null) {
+        node[prop] = (node[prop] || 0) + Number(row[valField]);
+      }
+    });
+  }
+
+  if (budgetRes.status === 'fulfilled') {
+    attach(budgetRes.value, 'department_description', 'budget', 'budget');
+    budgetRes.value.forEach(row => {
+      const key = (row.department_description || '').toUpperCase().trim();
+      const node = deptMap[key];
+      if (node && !node._budgetDeptName) node._budgetDeptName = row.department_description;
+    });
+  }
+  if (contractsRes.status === 'fulfilled') attach(contractsRes.value, 'department',  'contracts',    'contracts');
+  if (vendorRes.status === 'fulfilled') {
+    attach(vendorRes.value, 'department_name', 'vendor_total', 'vendorPayments');
+    vendorRes.value.forEach(row => {
+      const key = (row.department_name || '').toUpperCase().trim();
+      const node = deptMap[key];
+      if (node && !node._vendorDeptName) node._vendorDeptName = row.department_name;
+    });
+  }
+  if (headcountRes.status === 'fulfilled') attach(headcountRes.value, 'department',  'headcount',    'headcount');
+
+  // Attach exec names + salaries
+  if (execRes.status === 'fulfilled') {
+    execRes.value.forEach(row => {
+      const key = (row.department || '').toUpperCase().trim();
+      const node = deptMap[key];
+      if (node && !node.officeholderName && row.name) {
+        node.officeholderName = row.name;
+        node.officeholderSalary = row.annual_salary || row.salary || null;
+      }
+    });
+  }
+}
+
+let selectedNode = null;
+
+function nodeBadgeClass(type, appointedBy) {
+  if (type === 'elected') return 'badge-elected';
+  if (type === 'channel') return 'badge-channel';
+  return 'badge-appointed';
+}
+
+function nodeBadgeText(type, appointedBy) {
+  if (type === 'elected') return 'Elected';
+  if (type === 'channel') return 'City-wide';
+  if (appointedBy) return `Appt — ${appointedBy}`;
+  return 'Appointed';
+}
+
+/* ─────────────────────────────────────────────
+   Treemap fill / stroke by node type
+───────────────────────────────────────────── */
+function tmFill(d) {
+  if (d.children && d.children.length) return '#f0f4fa'; // group container
+  const t = d.data.type;
+  if (t === 'elected')  return '#fef9e8';
+  if (t === 'channel')  return '#f0ebff';
+  if (d.data.appointedBy) return '#e8f0fb';
+  return '#f4f6fa';
+}
+
+function tmStroke(d) {
+  if (d.children && d.children.length) return '#c8d4e8';
+  const t = d.data.type;
+  if (t === 'elected')  return '#d4a017';
+  if (t === 'channel')  return '#6d28d9';
+  if (d.data.appointedBy) return '#003F87';
+  return '#718096';
+}
+
+/* ─────────────────────────────────────────────
+   Zoomable treemap — two levels:
+   L1: Mayor / Clerk / Treasurer / Council / DV
+   L2: departments within the clicked office
+───────────────────────────────────────────── */
+let currentNodeId = null; // null = L1 view
+
+// Recursively expand _children → children for d3 traversal
+function flattenNode(node) {
+  const kids = node._children || node.children || [];
+  if (!kids.length) return { ...node, children: undefined };
+  return { ...node, _children: null, children: kids.map(flattenNode) };
+}
+
+function findById(node, id) {
+  if (node.id === id) return node;
+  for (const c of (node.children || [])) {
+    const found = findById(c, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function renderTreemap() {
+  const container = document.getElementById('org-chart-container');
+  const width = Math.max(container.clientWidth || 880, 600);
+  const height = 540;
+
+  const flat = flattenNode(GOV_TREE);
+
+  // Find the node to render: root's children (L1) or a specific node's children (L2)
+  let sourceNode = flat;
+  if (currentNodeId !== null) {
+    sourceNode = findById(flat, currentNodeId) || flat;
+  }
+
+  // Build hierarchy from sourceNode; leaf value = 2026 budget only
+  // DV node has no budget → falls back to vendorPayments (labeled in UI)
+  const hier = d3.hierarchy(sourceNode)
+    .sum(d => {
+      if (d.children && d.children.length) return 0;
+      return Math.max(d.budget || 0, 2_000_000);
+    })
+    .sort((a, b) => b.value - a.value);
+
+  d3.treemap()
+    .size([width, height])
+    .paddingOuter(3)
+    .paddingInner(2)
+    .round(true)(hier);
+
+  // Render only direct children of sourceNode (one level at a time)
+  const displayNodes = hier.children || [];
+
+  const svg = d3.select('#org-chart-svg')
+    .attr('width', width)
+    .attr('height', height);
+  svg.selectAll('*').remove();
+
+  const cell = svg.selectAll('g.tm-cell')
+    .data(displayNodes)
+    .join('g')
+    .attr('class', 'tm-cell clickable')
+    .attr('transform', d => `translate(${d.x0},${d.y0})`);
+
+  cell.append('rect')
+    .attr('width',  d => Math.max(0, d.x1 - d.x0))
+    .attr('height', d => Math.max(0, d.y1 - d.y0))
+    .attr('fill',   d => tmFill(d))
+    .attr('stroke', d => tmStroke(d))
+    .attr('stroke-width', 1.5)
+    .attr('rx', 3);
+
+  cell.append('foreignObject')
+    .attr('width',  d => Math.max(0, d.x1 - d.x0))
+    .attr('height', d => Math.max(0, d.y1 - d.y0))
+    .append('xhtml:div')
+    .attr('class', 'tm-label')
+    .html(d => {
+      const w = d.x1 - d.x0, h = d.y1 - d.y0;
+      if (w < 28 || h < 14) return '';
+      const amt = d.data.budget;
+      const hasKids = d.data.children && d.data.children.length;
+      return `<div class="tm-name">${d.data.name}</div>
+              ${amt && h > 36 ? `<div class="tm-amt">${fmt$(amt)}</div>` : ''}
+              ${hasKids && h > 50 ? '<div class="tm-drill">tap to expand ›</div>' : ''}`;
+    });
+
+  cell.on('click', (event, d) => {
+    const hasKids = d.data.children && d.data.children.length;
+    if (hasKids) {
+      currentNodeId = d.data.id;
+      renderTreemap();
+    } else {
+      selectedNode = d.data;
+      showDetailPanel(d.data);
+    }
+  });
+
+  // Breadcrumb
+  const crumb = document.getElementById('tm-breadcrumb');
+  const backBtn = document.getElementById('tm-back-btn');
+  if (currentNodeId === null) {
+    crumb.style.display = 'none';
+  } else {
+    crumb.style.display = 'flex';
+    document.getElementById('tm-crumb-name').textContent = sourceNode.name;
+  }
+  backBtn.onclick = () => { currentNodeId = null; renderTreemap(); };
+
+  container.style.display = 'block';
+  if (selectedNode) showDetailPanel(selectedNode);
+}
+
+async function showDetailPanel(node) {
+  const panel = document.getElementById('detail-panel');
+  panel.classList.add('visible');
+
+  document.getElementById('dp-title').textContent = `${node.name} — ${node.role || ''}`;
+
+  const rows = [
+    { label: 'Role / Title',        val: node.role },
+    { label: 'Officeholder',        val: node.officeholder || node.officeholderName },
+    { label: 'Officeholder Salary', val: fmt$(node.officeholderSalary) },
+    { label: 'Appointed By',        val: node.type === 'elected' ? 'Elected by residents' : (node.appointedBy ? `Mayor ${node.appointedBy}` : null) },
+    { label: 'Election / Appt Year',val: node.electedYear || node.appointedYear },
+    { label: '2026 Budget',         val: fmt$(node.budget) },
+    { label: 'Total Contracts',     val: fmt$(node.contracts) },
+    { label: 'Vendor Payments (all-time)', val: fmt$(node.vendorPayments) },
+    { label: 'Employee Headcount',  val: fmtNum(node.headcount) },
+  ];
+
+  document.getElementById('dp-grid').innerHTML = rows.map(r => `
+    <div class="detail-row">
+      <div class="detail-label">${r.label}</div>
+      <div class="detail-value">${r.val != null ? r.val : noData()}</div>
+    </div>
+  `).join('');
+
+  const noteEl = document.getElementById('dp-note');
+  if (node.note) {
+    noteEl.style.display = 'block';
+    noteEl.textContent = node.note;
+  } else {
+    noteEl.style.display = 'none';
+  }
+
+  // Hide sub-sections until data loads
+  document.getElementById('dp-comparison').style.display = 'none';
+  document.getElementById('dp-line-items').style.display = 'none';
+  document.getElementById('dp-li-content').innerHTML = '<div class="li-loading">Loading…</div>';
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const BASE = 'https://data.cityofchicago.org/resource';
+  const budgetDept = node._budgetDeptName;
+  const vendorDept = node._vendorDeptName;
+
+  if (!budgetDept) return; // no budget data for this node (TIF, council root, etc.)
+
+  const enc = encodeURIComponent;
+
+  // Fetch budget line items and 2025 vendor payments in parallel
+  const [lineRes, paidRes] = await Promise.allSettled([
+    socrataFetch(`${BASE}/6694-f78c.json?$select=appropriation_authority_description,appropriation_account_description,sum(_ordinance_amount_)%20as%20total&$where=department_description=${enc("'" + budgetDept + "'")}&$group=appropriation_authority_description,appropriation_account_description&$order=total%20DESC&$limit=200`),
+    vendorDept
+      ? socrataFetch(`${BASE}/pkr3-4xv7.json?$select=sum(amount)%20as%20total&$where=department_name=${enc("'" + vendorDept + "'")}%20AND%20check_date%20between%20'2025-01-01T00:00:00'%20and%20'2025-12-31T23:59:59'`)
+      : Promise.resolve(null)
+  ]);
+
+  // ── Budget vs. Actual comparison bar ──
+  const paid2025 = (paidRes.status === 'fulfilled' && paidRes.value && paidRes.value[0]?.total)
+    ? Number(paidRes.value[0].total) : null;
+  const budget2026 = node.budget;
+
+  if (budget2026 || paid2025) {
+    const cmpEl = document.getElementById('dp-comparison');
+    cmpEl.style.display = 'block';
+    const max = Math.max(budget2026 || 0, paid2025 || 0);
+    const budgetPct = budget2026 ? Math.min(100, (budget2026 / max) * 100).toFixed(1) : 0;
+    const paidPct   = paid2025   ? Math.min(100, (paid2025   / max) * 100).toFixed(1) : 0;
+    const overBudget = paid2025 && budget2026 && paid2025 > budget2026;
+
+    document.getElementById('dp-cmp-bars').innerHTML = `
+      <div class="cmp-row">
+        <div class="cmp-label">2026 Appropriated</div>
+        <div class="cmp-bar-track"><div class="cmp-bar-fill budget" style="width:${budgetPct}%"></div></div>
+        <div class="cmp-amt">${budget2026 ? fmt$(budget2026) : noData()}</div>
+      </div>
+      <div class="cmp-row">
+        <div class="cmp-label">2025 Paid</div>
+        <div class="cmp-bar-track"><div class="cmp-bar-fill ${overBudget ? 'over' : 'paid'}" style="width:${paidPct}%"></div></div>
+        <div class="cmp-amt">${paid2025 ? fmt$(paid2025) : noData()}</div>
+      </div>
+      ${paid2025 && budget2026 ? `<div class="cmp-note" style="margin-top:6px; color:${overBudget ? '#ef4444' : '#22c55e'}; font-weight:600;">
+        2025 spending was ${((paid2025 / budget2026) * 100).toFixed(0)}% of 2026 budget
+      </div>` : ''}
+    `;
+  }
+
+  // ── Budget line items breakdown ──
+  if (lineRes.status === 'fulfilled' && lineRes.value.length > 0) {
+    const liEl = document.getElementById('dp-line-items');
+    liEl.style.display = 'block';
+
+    // Group by appropriation_authority_description
+    const groups = new Map();
+    lineRes.value.forEach(row => {
+      const grp = row.appropriation_authority_description || 'General';
+      if (!groups.has(grp)) groups.set(grp, { total: 0, accounts: [] });
+      const g = groups.get(grp);
+      g.total += Number(row.total);
+      g.accounts.push({ name: row.appropriation_account_description, amt: Number(row.total) });
+    });
+
+    // Sort groups by total descending
+    const sorted = [...groups.entries()].sort((a, b) => b[1].total - a[1].total);
+
+    document.getElementById('dp-li-content').innerHTML = sorted.map(([grpName, grpData], i) => `
+      <div class="li-group${i === 0 ? ' open' : ''}" onclick="this.classList.toggle('open')">
+        <div class="li-group-header">
+          <span>${grpName}</span>
+          <span>
+            <span class="li-group-total">${fmt$(grpData.total)}</span>
+            <span class="li-group-chevron">▶</span>
+          </span>
+        </div>
+        <div class="li-accounts">
+          ${grpData.accounts.map(a => `
+            <div class="li-account-row">
+              <span>${a.name}</span>
+              <span class="li-account-amt">${fmt$(a.amt)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+  } else {
+    document.getElementById('dp-li-content').innerHTML = '<div class="li-loading">No budget line items found in open data.</div>';
+    document.getElementById('dp-line-items').style.display = 'block';
+  }
+}
+
+/* ─────────────────────────────────────────────
+   Leaflet Ward Map
+───────────────────────────────────────────── */
+async function initMap() {
+  const mapEl = document.getElementById('ward-map');
+  const mapLoading = document.getElementById('map-loading');
+  const mapStatus = document.getElementById('map-status');
+
+  mapEl.style.display = 'none';
+
+  const map = L.map('ward-map', {
+    center: [41.8781, -87.6298],
+    zoom: 10,
+    scrollWheelZoom: false
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 18
+  }).addTo(map);
+
+  let tifLayer = null;
+
+  // Fetch TIF expenditure data to build spending lookup
+  // TIF projects: sum approved_amount per district (dataset mex4-ppfc — cleaner schema than annual expenditures)
+  const tifSpendingByName = {};
+  try {
+    const tifRows = await socrataFetch(
+      'https://data.cityofchicago.org/resource/mex4-ppfc.json?$select=tif_district,sum(approved_amount)%20as%20total&$group=tif_district&$limit=300'
+    );
+    tifRows.forEach(row => {
+      const name = (row.tif_district || '').trim();
+      if (name) tifSpendingByName[name.toUpperCase()] = Number(row.total) || 0;
+    });
+  } catch (_) { /* spending data optional */ }
+
+  // Ward boundaries
+  let wardLoaded = false;
+  const wardUrls = [
+    'https://data.cityofchicago.org/api/geospatial/igwz-8jzy?method=export&type=GeoJSON',
+    'https://data.cityofchicago.org/api/geospatial/sp34-6z76?method=export&type=GeoJSON'
+  ];
+
+  for (const url of wardUrls) {
+    try {
+      const wardGeo = await fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+      L.geoJSON(wardGeo, {
+        style: {
+          fillColor: '#003F87',
+          fillOpacity: 0.08,
+          color: '#003F87',
+          weight: 1.5
+        },
+        onEachFeature(feature, layer) {
+          const ward = feature.properties.ward || feature.properties.WARD || feature.properties.ward_num || '?';
+          layer.bindPopup(
+            `<strong>Ward ${ward}</strong><br>` +
+            `Alderman name not available in open data.<br>` +
+            `<a href="https://www.chicago.gov/city/en/depts/city_clerk/provdrs/city_council_legislative_information_center.html" target="_blank">City Clerk ward lookup</a>`
+          );
+        }
+      }).addTo(map);
+      wardLoaded = true;
+      break;
+    } catch (_) { continue; }
+  }
+
+  if (!wardLoaded) {
+    mapStatus.innerHTML = '<span style="color:#c53030;">Ward boundaries could not be loaded — visit <a href="https://chicago.gov/wards">chicago.gov/wards</a></span>';
+  }
+
+  // TIF boundaries
+  try {
+    const tifGeo = await fetch(
+      'https://data.cityofchicago.org/api/geospatial/fz5x-7zak?method=export&type=GeoJSON'
+    ).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+
+    tifLayer = L.geoJSON(tifGeo, {
+      style(feature) {
+        const name = (feature.properties.name || feature.properties.tif_name || '').toUpperCase().trim();
+        const spending = tifSpendingByName[name] || 0;
+        const maxSpend = 5e7;
+        const opacity = spending > 0 ? 0.15 + 0.5 * Math.min(spending / maxSpend, 1) : 0.18;
+        return { fillColor: '#c05621', fillOpacity: opacity, color: '#c05621', weight: 1 };
+      },
+      onEachFeature(feature, layer) {
+        const name = feature.properties.name || feature.properties.tif_name || 'TIF District';
+        const nameKey = name.toUpperCase().trim();
+        const spending = tifSpendingByName[nameKey];
+        const spendStr = spending != null ? fmt$(spending) : null;
+        layer.bindPopup(
+          `<strong>${name}</strong><br>` +
+          (spendStr ? `Approved project commitments: ${spendStr}` : '<em>Project commitment data unavailable for this district</em>')
+        );
+      }
+    });
+  } catch (_) {
+    mapStatus.innerHTML = (mapStatus.innerHTML || '') + ' TIF district boundaries could not be loaded.';
+  }
+
+  // Toggle TIF layer
+  document.getElementById('tif-toggle').addEventListener('change', e => {
+    if (!tifLayer) return;
+    if (e.target.checked) tifLayer.addTo(map);
+    else map.removeLayer(tifLayer);
+  });
+
+  mapLoading.style.display = 'none';
+  mapEl.style.display = 'block';
+  map.invalidateSize();
+}
+
+/* ─────────────────────────────────────────────
+   Bootstrap
+───────────────────────────────────────────── */
+(async function init() {
+  // Load financial data
+  const statusEl = document.getElementById('chart-status');
+  try {
+    await loadFinancialData();
+    statusEl.style.display = 'none';
+  } catch (err) {
+    statusEl.innerHTML = `<div class="error-msg">Data unavailable — ${err.message}. Chart will render without financial figures.</div>`;
+  }
+
+  renderTreemap();
+
+  // Load map independently
+  try {
+    await initMap();
+  } catch (err) {
+    document.getElementById('map-loading').innerHTML =
+      `<div class="error-msg">Map unavailable — ${err.message}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

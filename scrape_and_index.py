@@ -91,6 +91,44 @@ EXTRA_SOURCES = [
             and not any(slug in href.lower() for slug in _BOILERPLATE_SLUGS)
         ),
     },
+    # ── Illinois state sources ────────────────────────────────────────────────
+    {
+        "name"         : "Illinois State Government",
+        "base_url"     : "https://www.illinois.gov",
+        "seed_url"     : "https://www.illinois.gov/services",
+        "level1"       : "Illinois State Services",
+        "source_scope" : "state_il",
+        "link_filter": lambda href: (
+            href.startswith("/")
+            and not any(x in href for x in ["#", "javascript:", ".pdf", ".doc",
+                                             ".xls", ".ppt", "login", "logout"])
+            and not any(slug in href.lower() for slug in _BOILERPLATE_SLUGS)
+        ),
+    },
+    {
+        "name"         : "IDHS Illinois Dept of Human Services",
+        "base_url"     : "https://www.dhs.state.il.us",
+        "seed_url"     : "https://www.dhs.state.il.us/page.aspx",
+        "level1"       : "Illinois State Services",
+        "source_scope" : "state_il",
+        "link_filter": lambda href: (
+            href.startswith("/")
+            and not any(x in href for x in ["#", "javascript:", ".pdf", "login", "logout"])
+            and not any(slug in href.lower() for slug in _BOILERPLATE_SLUGS)
+        ),
+    },
+    {
+        "name"         : "IDES Illinois Dept of Employment Security",
+        "base_url"     : "https://ides.illinois.gov",
+        "seed_url"     : "https://ides.illinois.gov",
+        "level1"       : "Illinois State Services",
+        "source_scope" : "state_il",
+        "link_filter": lambda href: (
+            href.startswith("/")
+            and not any(x in href for x in ["#", "javascript:", ".pdf", "login", "logout"])
+            and not any(slug in href.lower() for slug in _BOILERPLATE_SLUGS)
+        ),
+    },
 ]
 
 # Max pages to collect per extra source (keeps runtime reasonable)
@@ -322,6 +360,8 @@ def classify_level1(url: str) -> str:
         return "Education"
     if "chicagoparkdistrict.com" in url_lower:
         return "Parks & Recreation"
+    if any(d in url_lower for d in ["illinois.gov", "dhs.state.il.us", "ides.illinois.gov"]):
+        return "Illinois State Services"
     # Slug-based classification for chicago.gov
     for slug, category in LEVEL1_MAP.items():
         if f"/{slug}" in url_lower or f"/{slug}." in url_lower:
@@ -498,20 +538,28 @@ def main():
     # 3. Chunk all page text
     print("Step 3/4 — Chunking text...")
     all_chunks = []
+    # Build a map from domain → source_scope for extra sources
+    _domain_scope = {
+        src["base_url"].split("/")[2]: src.get("source_scope", "city")
+        for src in EXTRA_SOURCES
+    }
     for page in pages:
         chunks = chunk_text(page["text"])
         level1 = classify_level1(page["url"])
         level2 = page["title"].split(" | ")[0].strip()   # e.g. "Chicago Police Department"
+        domain = page["url"].split("/")[2]
+        source_scope = _domain_scope.get(domain, "city")
         for i, chunk in enumerate(chunks):
             all_chunks.append({
-                "id"          : f"{page['url']}__chunk_{i}",
-                "url"         : page["url"],
-                "title"       : page["title"],
-                "text"        : chunk,
-                "chunk_index" : i,
-                "level1"      : level1,
-                "level2"      : level2,
-                "level3"      : classify_level3(chunk),
+                "id"           : f"{page['url']}__chunk_{i}",
+                "url"          : page["url"],
+                "title"        : page["title"],
+                "text"         : chunk,
+                "chunk_index"  : i,
+                "level1"       : level1,
+                "level2"       : level2,
+                "level3"       : classify_level3(chunk),
+                "source_scope" : source_scope,
             })
 
     print(f"  Created {len(all_chunks)} chunks from {len(pages)} pages\n")
@@ -556,12 +604,12 @@ def main():
 
     psycopg2.extras.execute_values(
         cur,
-        "INSERT INTO chunks (id, url, title, text, chunk_index, level1, level2, level3, embedding) "
+        "INSERT INTO chunks (id, url, title, text, chunk_index, level1, level2, level3, source_scope, embedding) "
         "VALUES %s",
         [
             (c["id"], c["url"], c["title"], c["text"],
              c["chunk_index"], c["level1"], c["level2"], c["level3"],
-             embeddings[i].tolist())
+             c.get("source_scope", "city"), embeddings[i].tolist())
             for i, c in enumerate(all_chunks)
         ],
         page_size=100,
