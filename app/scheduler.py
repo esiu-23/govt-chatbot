@@ -27,12 +27,15 @@ at an adaptive interval so we check more often as a meeting approaches:
 import logging
 from datetime import datetime, timedelta, timezone
 
+from concurrent.futures import ThreadPoolExecutor
+
 from .data_sources.elms import (
     _COMMITTEE_CHAIRS,
     _attachment_summary,
     _elms_get,
     fetch_matter_detail_slim,
     fetch_meeting_items,
+    get_enriched_matter,
     meeting_summary,
     plain_language_titles,
 )
@@ -45,8 +48,8 @@ logger = logging.getLogger(__name__)
 _SUBSCRIBABLE_BODIES = ["City Council"] + sorted(_COMMITTEE_CHAIRS.keys())
 
 # ELMS status values that indicate the agenda has been officially published.
-# Logged empirically; add more values as they appear in practice.
-_PUBLISHED_STATUSES = {"published", "agenda published", "final agenda"}
+# "Scheduled & Published" is what the live ELMS API actually returns.
+_PUBLISHED_STATUSES = {"published", "agenda published", "final agenda", "scheduled & published"}
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +63,8 @@ def check_and_send_meeting_emails() -> None:
     state transitions.
     """
     logger.info("[scheduler] meeting email check starting")
-    today = datetime.now(timezone.utc).date()
+    now   = datetime.now(timezone.utc)
+    today = now.date()
     window_start = (today - timedelta(days=7)).isoformat()
     window_end   = (today + timedelta(days=30)).isoformat()
 
@@ -93,11 +97,22 @@ def check_and_send_meeting_emails() -> None:
 
     today_str = today.isoformat()
     for m in unique:
-        meeting_id = m.get("meetingId") or m.get("id") or ""
-        body       = m.get("body") or ""
-        date_str   = (m.get("date") or "")[:10]
-        elms_status = (m.get("status") or "").strip()
-        is_past    = date_str <= today_str
+        meeting_id        = m.get("meetingId") or m.get("id") or ""
+        body              = m.get("body") or ""
+        meeting_full_date = m.get("date") or ""
+        date_str          = meeting_full_date[:10]
+        elms_status       = (m.get("status") or "").strip()
+
+        # Compare against the meeting's full scheduled datetime so a meeting
+        # at 3 pm is not treated as past at 10 am on the same day.
+        if meeting_full_date:
+            try:
+                meeting_dt = datetime.fromisoformat(meeting_full_date.replace("Z", "+00:00"))
+                is_past = meeting_dt < now
+            except Exception:
+                is_past = date_str <= today_str
+        else:
+            is_past = date_str <= today_str
 
         if not _has_subscribers(body):
             continue
@@ -120,6 +135,7 @@ def check_and_send_meeting_emails() -> None:
                 items = _safe_fetch_items(meeting_id)
                 non_routine = [i for i in items if not i.get("isRoutine", False)]
                 if non_routine:
+                    _prewarm_matter_cache(non_routine)
                     enriched      = _enrich_items_for_email(items)
                     routine_count = sum(1 for i in items if i.get("isRoutine", False))
                     _dispatch_meeting_emails(
@@ -134,11 +150,13 @@ def check_and_send_meeting_emails() -> None:
 
         # ── Summary detection ─────────────────────────────────────────────
         if not state.get("summary_sent_at") and is_past:
-            items         = _safe_fetch_items(meeting_id)
-            summary_text  = meeting_summary(meeting_id, body, date_str, items)
-            enriched      = _enrich_items_for_email(items)
-            routine_count = sum(1 for i in items if i.get("isRoutine", False))
-            nonroutine_count = len([i for i in items if not i.get("isRoutine", False)])
+            items            = _safe_fetch_items(meeting_id)
+            non_routine      = [i for i in items if not i.get("isRoutine", False)]
+            _prewarm_matter_cache(non_routine)
+            summary_text     = meeting_summary(meeting_id, body, date_str, items)
+            enriched         = _enrich_items_for_email(items)
+            routine_count    = sum(1 for i in items if i.get("isRoutine", False))
+            nonroutine_count = len(non_routine)
             _dispatch_meeting_emails(
                 "summary", meeting_id, body, date_str,
                 enriched, routine_count,
@@ -234,6 +252,28 @@ def _detect_agenda_published(
             return True
 
     return False
+
+
+# ---------------------------------------------------------------------------
+# Matter cache pre-warming
+# ---------------------------------------------------------------------------
+
+def _prewarm_matter_cache(non_routine_items: list[dict]) -> None:
+    """Fetch and cache full matter detail for every non-routine item in parallel."""
+    record_numbers = [i["recordNumber"] for i in non_routine_items if i.get("recordNumber")]
+    if not record_numbers:
+        return
+
+    def _fetch(rn):
+        try:
+            get_enriched_matter(rn)
+        except Exception as e:
+            logger.warning("[scheduler] prewarm failed for %s: %s", rn, e)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(_fetch, record_numbers))
+
+    logger.info("[scheduler] prewarmed matter_detail_cache for %d matters", len(record_numbers))
 
 
 # ---------------------------------------------------------------------------
@@ -384,12 +424,34 @@ def _get_scheduler():
 
 
 def _days_until_next_subscribed_meeting() -> int | None:
-    """Return days until the nearest upcoming meeting for a subscribed body, or None."""
+    """Return days until the nearest relevant subscribed meeting.
+
+    Returns 0 if a meeting from yesterday or today still awaits a summary
+    (keeps the 20-min polling cadence active right after meetings end).
+    """
     today = datetime.now(timezone.utc).date()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    today_str = today.isoformat()
     try:
         with _db() as conn:
             cur = conn.cursor()
-            # Find the next upcoming meeting across all bodies that have subscribers
+            # If any recent meeting still needs a summary, poll frequently so
+            # the email goes out the same day the meeting data becomes available.
+            cur.execute(
+                """SELECT 1 FROM known_meetings km
+                   WHERE km.meeting_date BETWEEN %s AND %s
+                     AND km.summary_sent_at IS NULL
+                     AND EXISTS (
+                       SELECT 1 FROM meeting_subscriptions ms
+                       WHERE ms.body = km.body AND ms.confirmed = TRUE
+                     )
+                   LIMIT 1""",
+                (yesterday, today_str),
+            )
+            if cur.fetchone():
+                return 0  # < 2-day branch → 20-min polling
+
+            # Normal: next upcoming meeting
             cur.execute(
                 """SELECT km.meeting_date
                    FROM known_meetings km
@@ -401,7 +463,7 @@ def _days_until_next_subscribed_meeting() -> int | None:
                      )
                    ORDER BY km.meeting_date ASC
                    LIMIT 1""",
-                (today.isoformat(),),
+                (today_str,),
             )
             row = cur.fetchone()
             if row:
