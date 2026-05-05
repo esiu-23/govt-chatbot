@@ -109,6 +109,8 @@ def check_and_send_meeting_emails() -> None:
 
         status_changed = elms_status != (state.get("elms_status") or "")
 
+        location = m.get("location") or ""
+
         # ── Agenda detection ──────────────────────────────────────────────
         if not state.get("agenda_sent_at") and not is_past:
             agenda_published = _detect_agenda_published(
@@ -118,15 +120,16 @@ def check_and_send_meeting_emails() -> None:
                 items = _safe_fetch_items(meeting_id)
                 non_routine = [i for i in items if not i.get("isRoutine", False)]
                 if non_routine:
-                    enriched     = _enrich_items_for_email(items)
+                    enriched      = _enrich_items_for_email(items)
                     routine_count = sum(1 for i in items if i.get("isRoutine", False))
                     _dispatch_meeting_emails(
                         "agenda", meeting_id, body, date_str,
                         enriched, routine_count,
-                        location=m.get("location") or "",
+                        location=location,
                         summary_text="",
                     )
-                    _mark_agenda_sent(meeting_id, body, date_str, elms_status, len(non_routine))
+                    _mark_agenda_sent(meeting_id, body, date_str, elms_status,
+                                      len(non_routine), routine_count, location)
                     logger.info("[scheduler] agenda email sent for %s %s", body, date_str)
 
         # ── Summary detection ─────────────────────────────────────────────
@@ -135,6 +138,7 @@ def check_and_send_meeting_emails() -> None:
             summary_text  = meeting_summary(meeting_id, body, date_str, items)
             enriched      = _enrich_items_for_email(items)
             routine_count = sum(1 for i in items if i.get("isRoutine", False))
+            nonroutine_count = len([i for i in items if not i.get("isRoutine", False)])
             _dispatch_meeting_emails(
                 "summary", meeting_id, body, date_str,
                 enriched, routine_count,
@@ -142,7 +146,7 @@ def check_and_send_meeting_emails() -> None:
                 summary_text=summary_text,
             )
             _mark_summary_sent(meeting_id, body, date_str, elms_status,
-                               len([i for i in items if not i.get("isRoutine", False)]))
+                               nonroutine_count, routine_count, location)
             logger.info("[scheduler] summary email sent for %s %s", body, date_str)
 
         # Always update last_checked_at and status snapshot.
@@ -435,17 +439,18 @@ def _load_meeting_state(meeting_id: str) -> dict | None:
 
 
 def _upsert_meeting_state(
-    meeting_id: str, body: str, meeting_date: str, elms_status: str, nonroutine_count: int
+    meeting_id: str, body: str, meeting_date: str, elms_status: str, nonroutine_count: int,
+    routine_count: int = 0, location: str = "",
 ) -> dict:
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
                 """INSERT INTO known_meetings
-                       (meeting_id, body, meeting_date, elms_status, nonroutine_count)
-                   VALUES (%s, %s, %s, %s, %s)
+                       (meeting_id, body, meeting_date, elms_status, nonroutine_count, routine_count, location)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (meeting_id) DO NOTHING""",
-                (meeting_id, body, meeting_date, elms_status, nonroutine_count),
+                (meeting_id, body, meeting_date, elms_status, nonroutine_count, routine_count, location),
             )
     except Exception as e:
         logger.warning("[scheduler] upsert_meeting_state: %s", e)
@@ -471,42 +476,48 @@ def _touch_meeting_state(meeting_id: str, elms_status: str) -> None:
 
 
 def _mark_agenda_sent(
-    meeting_id: str, body: str, meeting_date: str, elms_status: str, nonroutine_count: int
+    meeting_id: str, body: str, meeting_date: str, elms_status: str,
+    nonroutine_count: int, routine_count: int = 0, location: str = "",
 ) -> None:
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
                 """INSERT INTO known_meetings
-                       (meeting_id, body, meeting_date, elms_status, nonroutine_count, agenda_sent_at)
-                   VALUES (%s, %s, %s, %s, %s, NOW())
+                       (meeting_id, body, meeting_date, elms_status, nonroutine_count, routine_count, location, agenda_sent_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                    ON CONFLICT (meeting_id) DO UPDATE
-                     SET agenda_sent_at = NOW(),
+                     SET agenda_sent_at   = NOW(),
                          nonroutine_count = EXCLUDED.nonroutine_count,
-                         elms_status = EXCLUDED.elms_status,
-                         last_checked_at = NOW()""",
-                (meeting_id, body, meeting_date, elms_status, nonroutine_count),
+                         routine_count    = EXCLUDED.routine_count,
+                         location         = COALESCE(EXCLUDED.location, known_meetings.location),
+                         elms_status      = EXCLUDED.elms_status,
+                         last_checked_at  = NOW()""",
+                (meeting_id, body, meeting_date, elms_status, nonroutine_count, routine_count, location),
             )
     except Exception as e:
         logger.warning("[scheduler] mark_agenda_sent: %s", e)
 
 
 def _mark_summary_sent(
-    meeting_id: str, body: str, meeting_date: str, elms_status: str, nonroutine_count: int
+    meeting_id: str, body: str, meeting_date: str, elms_status: str,
+    nonroutine_count: int, routine_count: int = 0, location: str = "",
 ) -> None:
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
                 """INSERT INTO known_meetings
-                       (meeting_id, body, meeting_date, elms_status, nonroutine_count, summary_sent_at)
-                   VALUES (%s, %s, %s, %s, %s, NOW())
+                       (meeting_id, body, meeting_date, elms_status, nonroutine_count, routine_count, location, summary_sent_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                    ON CONFLICT (meeting_id) DO UPDATE
-                     SET summary_sent_at = NOW(),
+                     SET summary_sent_at  = NOW(),
                          nonroutine_count = EXCLUDED.nonroutine_count,
-                         elms_status = EXCLUDED.elms_status,
-                         last_checked_at = NOW()""",
-                (meeting_id, body, meeting_date, elms_status, nonroutine_count),
+                         routine_count    = EXCLUDED.routine_count,
+                         location         = COALESCE(EXCLUDED.location, known_meetings.location),
+                         elms_status      = EXCLUDED.elms_status,
+                         last_checked_at  = NOW()""",
+                (meeting_id, body, meeting_date, elms_status, nonroutine_count, routine_count, location),
             )
     except Exception as e:
         logger.warning("[scheduler] mark_summary_sent: %s", e)

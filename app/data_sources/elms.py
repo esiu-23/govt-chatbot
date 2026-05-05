@@ -582,8 +582,11 @@ def meeting_summary(meeting_id: str, body: str, date_str: str, items: list) -> s
             with _db() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "INSERT INTO meeting_summaries (meeting_id, body, meeting_date, summary) "
-                    "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                    """INSERT INTO meeting_summaries (meeting_id, body, meeting_date, summary)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (meeting_id) DO UPDATE
+                         SET body = COALESCE(EXCLUDED.body, meeting_summaries.body),
+                             meeting_date = COALESCE(EXCLUDED.meeting_date, meeting_summaries.meeting_date)""",
                     (meeting_id, body, date_str, summary)
                 )
         except Exception:

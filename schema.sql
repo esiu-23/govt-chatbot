@@ -163,11 +163,16 @@ CREATE TABLE IF NOT EXISTS known_meetings (
     meeting_date      TEXT NOT NULL,        -- YYYY-MM-DD
     elms_status       TEXT,                 -- raw status from ELMS ("Scheduled", "Published", "Completed", etc.)
     nonroutine_count  INTEGER DEFAULT 0,    -- non-routine item count at last check; 0 = agenda not yet seen
+    routine_count     INTEGER DEFAULT 0,    -- routine item count (claims, permits, etc.)
+    location          TEXT,                 -- meeting room/address from ELMS
     agenda_sent_at    TIMESTAMPTZ,          -- non-NULL once agenda emails have been dispatched
     summary_sent_at   TIMESTAMPTZ,          -- non-NULL once summary emails have been dispatched
     first_seen_at     TIMESTAMPTZ DEFAULT NOW(),
     last_checked_at   TIMESTAMPTZ DEFAULT NOW()
 );
+-- Migration for existing deployments:
+-- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS routine_count INTEGER DEFAULT 0;
+-- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS location TEXT;
 CREATE INDEX IF NOT EXISTS known_meetings_date_idx ON known_meetings(meeting_date);
 CREATE INDEX IF NOT EXISTS known_meetings_body_idx ON known_meetings(body);
 

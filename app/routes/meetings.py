@@ -25,9 +25,16 @@ def meetings_recent():
     if cached and time.time() - cached["ts"] < _RECENT_TTL:
         return jsonify(cached["data"])
     try:
+        results = _meetings_from_db(limit=5)
+        if len(results) >= 5:
+            payload = {"meetings": results}
+            _cache["recent"] = {"ts": time.time(), "data": payload}
+            return jsonify(payload)
+
+        # DB doesn't have enough — fall back to ELMS (new meetings not yet processed by scheduler)
+        today = datetime.now(timezone.utc).date().isoformat()
         raw = _elms_get_meetings()
         meetings = raw.get("value", raw.get("data", []))
-        today = datetime.now(timezone.utc).date().isoformat()
         seen = set()
         past = []
         for m in meetings:
@@ -39,7 +46,6 @@ def meetings_recent():
                 seen.add(key)
                 past.append(m)
 
-        results = []
         with ThreadPoolExecutor(max_workers=6) as pool:
             futures = {pool.submit(_enrich_meeting, m): m for m in past}
             for future in as_completed(futures):
@@ -69,37 +75,8 @@ def meetings_all():
     if cached and time.time() - cached["ts"] < _ALL_TTL:
         return jsonify(cached["data"])
     try:
-        raw = _elms_get_meetings(top=300)
-        meetings = raw.get("value", raw.get("data", []))
-        today = datetime.now(timezone.utc).date().isoformat()
-        seen = set()
-        past = []
-        for m in meetings:
-            date_str = (m.get("date") or "")[:10]
-            if not date_str or date_str > today or not m.get("meetingId"):
-                continue
-            key = (date_str, m.get("body", ""))
-            if key not in seen:
-                seen.add(key)
-                past.append(m)
-
-        results = []
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            futures = {pool.submit(_enrich_meeting, m): m for m in past}
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    if result:
-                        results.append(result)
-                        if len(results) >= 50:
-                            for f in futures:
-                                f.cancel()
-                            break
-                except Exception:
-                    pass
-
-        results.sort(key=lambda x: x.get("date") or "", reverse=True)
-        payload = {"meetings": results[:50]}
+        results = _meetings_from_db(limit=50)
+        payload = {"meetings": results}
         _cache["all"] = {"ts": time.time(), "data": payload}
         return jsonify(payload)
     except Exception as e:
@@ -164,6 +141,45 @@ def meeting_matters(meeting_id):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _meetings_from_db(limit: int = 5) -> list[dict]:
+    """Read enriched meetings directly from DB — no ELMS call needed."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT ms.meeting_id, ms.body, ms.meeting_date, ms.summary,
+                          km.location, km.elms_status, km.nonroutine_count, km.routine_count
+                   FROM meeting_summaries ms
+                   LEFT JOIN known_meetings km USING (meeting_id)
+                   WHERE ms.meeting_date IS NOT NULL AND ms.meeting_date <= %s
+                   ORDER BY ms.meeting_date DESC
+                   LIMIT %s""",
+                (today, limit),
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.warning("[meetings] DB list query failed: %s", e)
+        return []
+
+    results = []
+    for meeting_id, body, meeting_date, summary, location, elms_status, nonroutine_count, routine_count in rows:
+        nonroutine_count = nonroutine_count or 0
+        routine_count    = routine_count or 0
+        results.append({
+            "meetingId":       meeting_id,
+            "date":            meeting_date,
+            "body":            body or "",
+            "location":        location or "",
+            "status":          elms_status or "",
+            "summary":         summary,
+            "routineCount":    routine_count,
+            "nonRoutineCount": nonroutine_count,
+            "totalCount":      nonroutine_count + routine_count,
+        })
+    return results
+
 
 def _elms_get_meetings(top: int = 100):
     from ..data_sources.elms import _elms_get
