@@ -690,6 +690,28 @@
     .leg-what-link:hover { text-decoration: underline; }
     .leg-empty { color: #718096; font-size: 0.92rem; text-align: center; margin-top: 36px; }
     .leg-loading { color: #718096; font-size: 0.9rem; }
+    /* Skeleton loader */
+    @keyframes skel-shimmer {
+      0%   { background-position: -600px 0; }
+      100% { background-position: 600px 0; }
+    }
+    .skel-line, .skel-block {
+      background: linear-gradient(90deg, #e8edf2 25%, #f4f7fa 50%, #e8edf2 75%);
+      background-size: 1200px 100%;
+      animation: skel-shimmer 1.4s infinite linear;
+      border-radius: 4px;
+    }
+    .skel-card {
+      background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #d0daea;
+      border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+    }
+    .skel-line { height: 13px; margin-bottom: 8px; }
+    .skel-line.w80 { width: 80%; }
+    .skel-line.w60 { width: 60%; }
+    .skel-line.w40 { width: 40%; }
+    .skel-line.w30 { width: 30%; }
+    .skel-block { height: 56px; width: 100%; border-radius: 6px; }
+    .skel-timer { font-size: 0.78rem; color: #a0aec0; margin-top: 6px; text-align: right; font-variant-numeric: tabular-nums; }
     .leg-status-routine { color: #718096; font-weight: 600; }
     .leg-meeting-card {
       background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #003F87;
@@ -1259,6 +1281,49 @@
 
   langSel.addEventListener("change", () => applyLang(langSel.value));
 
+  // ── Skeleton helpers ─────────────────────────────────────────────────────
+  function skelMeetingCards(n = 3) {
+    return Array.from({length: n}, () => `
+      <div class="skel-card">
+        <div class="skel-line w60"></div>
+        <div class="skel-line w80"></div>
+        <div class="skel-line w40"></div>
+      </div>`).join("") + '<div class="skel-timer" id="skel-timer"></div>';
+  }
+  function skelMatterCards(n = 4) {
+    return Array.from({length: n}, () => `
+      <div class="skel-card">
+        <div class="skel-line w40"></div>
+        <div class="skel-line w80"></div>
+        <div class="skel-line w30"></div>
+      </div>`).join("") + '<div class="skel-timer" id="skel-timer"></div>';
+  }
+  function skelDetail() {
+    return `
+      <div style="padding:4px 0">
+        <div class="skel-line w60" style="height:20px;margin-bottom:14px"></div>
+        <div class="skel-line w40" style="margin-bottom:20px"></div>
+        <div class="skel-block" style="margin-bottom:12px"></div>
+        <div class="skel-line w80"></div>
+        <div class="skel-line w60"></div>
+        <div class="skel-line w70"></div>
+      </div>
+      <div class="skel-timer" id="skel-timer"></div>`;
+  }
+  // Starts a ticker that updates #skel-timer every second until cleared
+  let _skelTimerInterval = null;
+  function startSkelTimer(container) {
+    clearSkelTimer();
+    const t0 = Date.now();
+    _skelTimerInterval = setInterval(() => {
+      const el = (container || document).querySelector("#skel-timer");
+      if (el) el.textContent = `Loading… ${((Date.now() - t0) / 1000).toFixed(1)}s`;
+    }, 100);
+  }
+  function clearSkelTimer() {
+    if (_skelTimerInterval) { clearInterval(_skelTimerInterval); _skelTimerInterval = null; }
+  }
+
   // Submit on Enter
   inputEl.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1620,10 +1685,12 @@
     legRecentLoaded = true;
     const resultsEl = document.getElementById("leg-results");
     const headerEl  = document.getElementById("leg-results-header");
-    resultsEl.innerHTML = '<p class="leg-loading">Loading recent meetings…</p>';
+    resultsEl.innerHTML = skelMeetingCards(3);
+    startSkelTimer(resultsEl);
     fetch("/meetings/recent")
       .then(r => r.json())
       .then(data => {
+        clearSkelTimer();
         legCurrentMeetings = data.meetings || [];
         headerEl.textContent = "Recent meetings";
         headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
@@ -1631,6 +1698,7 @@
         document.getElementById("leg-browse-link").style.display = legCurrentMeetings.length ? "block" : "none";
       })
       .catch(() => {
+        clearSkelTimer();
         resultsEl.innerHTML = "";
         headerEl.style.display = "none";
       });
@@ -1649,15 +1717,18 @@
       renderMeetings(legAllMeetings);
       return;
     }
-    resultsEl.innerHTML = '<p class="leg-loading">Loading all meetings…</p>';
+    resultsEl.innerHTML = skelMeetingCards(5);
+    startSkelTimer(resultsEl);
     fetch("/meetings/all")
       .then(r => r.json())
       .then(data => {
+        clearSkelTimer();
         legAllMeetings = data.meetings || [];
         legAllMeetingsLoaded = true;
         renderMeetings(legAllMeetings);
       })
       .catch(() => {
+        clearSkelTimer();
         resultsEl.innerHTML = '<p class="leg-empty">Could not load meetings. Please try again.</p>';
         headerEl.style.display = "none";
       });
@@ -1724,7 +1795,8 @@
     _setBackBtn(legShowingAllMeetings ? "All meetings" : "Recent meetings");
     const resultsEl = document.getElementById("leg-results");
     const headerEl  = document.getElementById("leg-results-header");
-    resultsEl.innerHTML = '<p class="leg-loading">Loading matters…</p>';
+    resultsEl.innerHTML = skelMatterCards(4);
+    startSkelTimer(resultsEl);
     headerEl.textContent = label;
     headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
     document.getElementById("leg-browse-link").style.display = "none";
@@ -1732,6 +1804,7 @@
     fetch(_meetingMattersUrl(meetingId, 0))
       .then(r => r.json())
       .then(data => {
+        clearSkelTimer();
         legCurrentResults = data.matters || [];
         legMeetingOffset  = legCurrentResults.length;
         legMeetingTotal   = data.total || 0;
@@ -1740,6 +1813,7 @@
         _updateSeeMore();
       })
       .catch(() => {
+        clearSkelTimer();
         resultsEl.innerHTML = '<p class="leg-empty">Could not load matters. Please try again.</p>';
       });
   }
@@ -1782,17 +1856,20 @@
     const headerEl  = document.getElementById("leg-results-header");
     btn.disabled        = true;
     btn.textContent     = "Searching…";
-    resultsEl.innerHTML = '<p class="leg-loading">Searching legislation…</p>';
+    resultsEl.innerHTML = skelMatterCards(4);
+    startSkelTimer(resultsEl);
     headerEl.style.display = "none";
     fetch("/legislation/search?q=" + encodeURIComponent(q))
       .then(r => r.json())
       .then(data => {
+        clearSkelTimer();
         legCurrentResults = data.matters || [];
         headerEl.textContent = `${legCurrentResults.length} result${legCurrentResults.length !== 1 ? "s" : ""} for "${q}"`;
         headerEl.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
         renderResults(legCurrentResults);
       })
       .catch(() => {
+        clearSkelTimer();
         resultsEl.innerHTML = '<p class="leg-empty">Search failed. Please try again.</p>';
         headerEl.style.display = "none";
       })
@@ -1868,11 +1945,13 @@
       ? `← Back to ${legCurrentMeetingLabel}`
       : "← Back to results";
     backBtn.onclick = fromMeeting ? showMeetingResults : showLegResults;
-    detailEl.innerHTML = '<p class="leg-loading">Loading matter details…</p>';
+    detailEl.innerHTML = skelDetail();
+    startSkelTimer(detailEl);
     fetch("/legislation/matters/" + encodeURIComponent(recordNumber))
       .then(r => r.json())
-      .then(renderMatterDetail)
+      .then(data => { clearSkelTimer(); renderMatterDetail(data); })
       .catch(() => {
+        clearSkelTimer();
         detailEl.innerHTML = '<p class="leg-empty">Could not load this matter. Please try again.</p>';
       });
   }
@@ -2242,16 +2321,19 @@
     ilLegRecentLoaded = true;
     const el = document.getElementById("il-leg-results");
     const hd = document.getElementById("il-leg-results-header");
-    el.innerHTML = '<p class="leg-loading">Loading recent Illinois bills…</p>';
+    el.innerHTML = skelMatterCards(4);
+    startSkelTimer(el);
     fetch("/illinois/legislation/recent")
       .then(r => r.json())
       .then(data => {
+        clearSkelTimer();
         ilLegCurrentResults = data.bills || [];
         hd.textContent = `${ilLegCurrentResults.length} recent Illinois bills`;
         hd.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
         renderIlResults(ilLegCurrentResults);
       })
       .catch(() => {
+        clearSkelTimer();
         el.innerHTML = '<p class="leg-empty">Could not load recent bills. Please try again.</p>';
       });
   }
@@ -2265,17 +2347,20 @@
     const hd  = document.getElementById("il-leg-results-header");
     btn.disabled    = true;
     btn.textContent = "Searching…";
-    el.innerHTML    = '<p class="leg-loading">Searching Illinois legislation…</p>';
+    el.innerHTML = skelMatterCards(4);
+    startSkelTimer(el);
     hd.style.display = "none";
     fetch("/illinois/legislation/search?q=" + encodeURIComponent(q))
       .then(r => r.json())
       .then(data => {
+        clearSkelTimer();
         ilLegCurrentResults = data.bills || [];
         hd.textContent = `${ilLegCurrentResults.length} result${ilLegCurrentResults.length !== 1 ? "s" : ""} for "${q}"`;
         hd.style.cssText = "display:block; font-weight:600; font-size:0.88rem; color:#718096; margin:16px 0 8px;";
         renderIlResults(ilLegCurrentResults);
       })
       .catch(() => {
+        clearSkelTimer();
         el.innerHTML = '<p class="leg-empty">Search failed. Please try again.</p>';
         hd.style.display = "none";
       })
@@ -2290,10 +2375,12 @@
     const detailView = document.getElementById("il-leg-detail-view");
     document.getElementById("il-leg-search-view").style.display = "none";
     detailView.style.display = "";
-    detailEl.innerHTML = '<p class="leg-loading">Loading bill details…</p>';
+    detailEl.innerHTML = skelDetail();
+    startSkelTimer(detailEl);
     fetch("/illinois/legislation/bills/" + encodeURIComponent(billId))
       .then(r => r.json())
       .then(bill => {
+        clearSkelTimer();
         const status = (bill.status || "").replace(/^\d+-/, "");
         const sponsor = (bill.sponsors || []).find(s => s.sponsor_type_id === 1);
         const sponsorName = sponsor ? sponsor.name : "";
@@ -2325,6 +2412,7 @@
         `;
       })
       .catch(() => {
+        clearSkelTimer();
         detailEl.innerHTML = '<p class="leg-empty">Could not load this bill. Please try again.</p>';
       });
   }
