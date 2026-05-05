@@ -1988,14 +1988,7 @@
       const actionDate = action.actionDate
         ? new Date(action.actionDate).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
         : "";
-      const mtg = action.meetingDetails;
       let meetingHtml = "";
-      if (mtg) {
-        if (mtg.location)
-          meetingHtml += `<div class="leg-meeting-detail">📍 ${escLeg(mtg.location)}</div>`;
-        if (mtg.videoLinks && mtg.videoLinks.length)
-          meetingHtml += `<div class="leg-meeting-detail">🎥 <a href="${escLeg(mtg.videoLinks[0])}" target="_blank" rel="noreferrer">Watch meeting video</a></div>`;
-      }
       const referralHtml = action.statusContext
         ? `<div class="leg-status-context">${escLeg(action.statusContext)}</div>`
         : "";

@@ -337,6 +337,51 @@ _CACHE_TTL_ACTIVE  = 4 * 3600    # 4 hours
 _CACHE_TTL_SETTLED = 7 * 86400   # 7 days
 _SETTLED_STATUSES  = {"passed", "failed", "withdrawn", "tabled", "vetoed"}
 
+_next_meeting_cache: dict[str, tuple[float, dict | None]] = {}
+_NEXT_MEETING_CACHE_TTL = 30 * 60  # 30 minutes
+
+
+def _next_meeting_for_body(body: str) -> dict | None:
+    """Return the next upcoming meeting for a controlling body, with publicCommentDeadline.
+
+    Result is cached per body for 30 minutes to avoid redundant ELMS calls on
+    every matter detail view.
+    """
+    import time as _time
+    cached = _next_meeting_cache.get(body)
+    if cached:
+        ts, result = cached
+        if _time.time() - ts < _NEXT_MEETING_CACHE_TTL:
+            return result
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    result = None
+    try:
+        raw = _elms_get("/meeting-agenda", {"search": body, "top": 50, "orderby": "date asc"})
+        meetings = raw.get("value", raw.get("data", []))
+        for m in meetings:
+            date_str = (m.get("date") or "")[:10]
+            if date_str < today:
+                continue
+            meeting_id = m.get("meetingId") or m.get("id")
+            if not meeting_id:
+                continue
+            try:
+                full = _elms_get(f"/meeting-agenda/{meeting_id}")
+                result = {
+                    "meetingId": meeting_id,
+                    "date": m.get("date") or date_str,
+                    "publicCommentDeadline": full.get("publicCommentDeadline"),
+                }
+            except Exception:
+                result = {"meetingId": meeting_id, "date": m.get("date") or date_str, "publicCommentDeadline": None}
+            break
+    except Exception:
+        pass
+
+    _next_meeting_cache[body] = (_time.time(), result)
+    return result
+
 
 def get_enriched_matter(record_number: str) -> dict:
     """Return enriched matter data, reading from matter_detail_cache before hitting ELMS."""
@@ -383,40 +428,6 @@ def get_enriched_matter(record_number: str) -> dict:
 
 def enrich_matter(matter: dict) -> dict:
     actions = matter.get("actions") or []
-    meeting_id_map = {}
-    for action in actions:
-        body = action.get("actionByName", "")
-        date_str = (action.get("actionDate") or "")[:10]
-        if not body or not date_str or (body, date_str) in meeting_id_map:
-            continue
-        try:
-            raw = _elms_get("/meeting-agenda", {"search": body, "top": 200})
-            meetings = raw.get("value", raw.get("data", []))
-            for meeting in meetings:
-                if (meeting.get("date") or "")[:10] == date_str:
-                    meeting_id = meeting.get("meetingId") or meeting.get("id")
-                    if meeting_id:
-                        meeting_id_map[(body, date_str)] = meeting_id
-                    break
-        except Exception:
-            pass
-
-    meeting_details = {}
-    for key, meeting_id in meeting_id_map.items():
-        try:
-            detail = _elms_get(f"/meeting-agenda/{meeting_id}")
-            video = detail.get("videoLink")
-            detail["videoLinks"] = [video] if isinstance(video, str) and video else (video if isinstance(video, list) else [])
-            meeting_details[key] = detail
-        except Exception:
-            pass
-
-    for action in actions:
-        body = action.get("actionByName", "")
-        date_str = (action.get("actionDate") or "")[:10]
-        detail = meeting_details.get((body, date_str))
-        if detail:
-            action["meetingDetails"] = detail
 
     for action in actions:
         if "refer" in (action.get("actionName") or "").lower():
@@ -496,6 +507,29 @@ def enrich_matter(matter: dict) -> dict:
             "link": "https://www.chicityclerk.com/city-council-news-and-events/city-council-and-committee-meetings",
             "linkText": "View upcoming meetings",
         })
+        if controlling_body:
+            next_mtg = _next_meeting_for_body(controlling_body)
+            if next_mtg:
+                deadline_iso = next_mtg.get("publicCommentDeadline") or ""
+                meeting_date_iso = (next_mtg.get("date") or "")[:10]
+                deadline_str = None
+                if deadline_iso:
+                    try:
+                        from zoneinfo import ZoneInfo
+                        dt_utc = datetime.fromisoformat(deadline_iso.replace("Z", "+00:00"))
+                        dt_ct  = dt_utc.astimezone(ZoneInfo("America/Chicago"))
+                        deadline_str = dt_ct.strftime("%-m/%-d/%Y at %-I:%M %p CT")
+                    except Exception:
+                        deadline_str = deadline_iso[:16].replace("T", " ") + " UTC"
+                elif meeting_date_iso:
+                    deadline_str = f"before the meeting on {meeting_date_iso}"
+                if deadline_str:
+                    what_can_you_do.append({
+                        "action": "Submit a public comment",
+                        "detail": f"Written public comments are accepted before the next committee meeting. Deadline: {deadline_str}.",
+                        "link": "https://chicityclerkelms.chicago.gov/Meetings/",
+                        "linkText": "Submit comment on ELMS",
+                    })
     elif "pass" in display or (raw_sub and re.search(r'pass|adopt', raw_sub)):
         what_can_you_do.append({
             "action": "Read the full text",
