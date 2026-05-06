@@ -1,6 +1,7 @@
 import socket
 import logging
 from contextlib import contextmanager
+import os 
 
 import psycopg2
 import psycopg2.pool
@@ -9,6 +10,16 @@ from pgvector.psycopg2 import register_vector
 logger = logging.getLogger(__name__)
 
 _pool: "psycopg2.pool.ThreadedConnectionPool | None" = None
+
+def get_pool(): 
+    global _pool
+    if _pool is None:
+        _pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=1,
+            maxconn=10,
+            dsn=os.environ["DATABASE_URL"]
+        )
+    return _pool
 
 
 def _ipv4_connect_params(dsn: str) -> dict:
@@ -26,6 +37,7 @@ def _ipv4_connect_params(dsn: str) -> dict:
 
 @contextmanager
 def _db():
+    _pool = get_pool()
     conn = _pool.getconn()
     register_vector(conn)
     try:
