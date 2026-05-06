@@ -2,6 +2,7 @@ import logging
 import threading
 
 from flask import Flask, request
+from flask import redirect, url_for
 
 from .routes import pages, chat, legislation, meetings, subscriptions, illinois_legislation
 from .scheduler import start_scheduler
@@ -53,10 +54,6 @@ def create_app() -> Flask:
             response.status_code,
         )
         return response
-    
-    @app.route("/")
-    def health():
-        return "ok", 200
 
     app.register_blueprint(pages.bp)
     app.register_blueprint(chat.bp)
@@ -66,5 +63,8 @@ def create_app() -> Flask:
     app.register_blueprint(subscriptions.bp)
 
     start_scheduler(app)
+
+    print("BLUEPRINTS:", app.blueprints)
+    print("URL MAP:", app.url_map)
 
     return app

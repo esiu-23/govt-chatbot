@@ -17,12 +17,20 @@ def _no_cache(resp):
 
 @bp.route("/")
 def index():
-    return _no_cache(send_from_directory("static", "landing.html"))
+    # return _no_cache(send_from_directory("static", "landing.html"))
+    return _no_cache(send_from_directory(
+        os.path.join(_PROJECT_ROOT, "static"),
+        "landing.html"
+    ))
 
 
 @bp.route("/app")
 def app_page():
-    return _no_cache(send_from_directory("static", "index.html"))
+    # return _no_cache(send_from_directory("static", "index.html"))
+    return _no_cache(send_from_directory(
+        os.path.join(_PROJECT_ROOT, "static"),
+        "index.html"
+    ))
 
 
 @bp.route("/analyses")
