@@ -10,7 +10,7 @@ Two distinct jobs with distinct responsibilities:
    For each NEW meeting discovered:
      • Upserts into known_meetings with meeting_datetime
      • Schedules two one-shot DateTrigger polls: at meeting start time and
-       3 h after (expected end)
+       24 h after (expected end)
      • If subscribers exist, fetches the full meeting record for
        publicCommentDeadline and sends a "new meeting scheduled" alert email
    For existing meetings: updates meeting_datetime if missing and
@@ -73,7 +73,7 @@ def sync_meeting_schedule() -> None:
     Fetches only the meeting list from ELMS (no agenda content).  For each NEW
     meeting not already in known_meetings:
       • Stores it with meeting_datetime
-      • Schedules one-shot DateTrigger polls at start time and 3 h after
+      • Schedules one-shot DateTrigger polls at start time and 24 h after
       • Sends a "new meeting scheduled" alert with the public comment deadline
 
     For ALL upcoming meetings (new and existing): re-registers DateTrigger polls
@@ -344,7 +344,7 @@ def _schedule_targeted_polls(scheduler, meeting_id: str, meeting_dt: datetime) -
             max_instances=1,
         )
 
-    post_dt = meeting_dt + timedelta(hours=3)
+    post_dt = meeting_dt + timedelta(hours=24)
     if post_dt > now:
         scheduler.add_job(
             check_and_send_meeting_emails,

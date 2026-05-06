@@ -62,7 +62,7 @@ def create_app() -> Flask:
     app.register_blueprint(meetings.bp)
     app.register_blueprint(subscriptions.bp)
 
-    start_scheduler(app)
+    # start_scheduler(app)
 
     print("BLUEPRINTS:", app.blueprints)
     print("URL MAP:", app.url_map)
