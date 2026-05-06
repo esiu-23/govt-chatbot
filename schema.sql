@@ -101,3 +101,136 @@ CREATE TABLE IF NOT EXISTS meeting_summaries (
 -- ALTER TABLE attachment_summaries  ADD COLUMN IF NOT EXISTS file_name TEXT;
 -- ALTER TABLE meeting_summaries     ADD COLUMN IF NOT EXISTS body TEXT;
 -- ALTER TABLE meeting_summaries     ADD COLUMN IF NOT EXISTS meeting_date TEXT;
+
+-- ---------------------------------------------------------------------------
+-- Matter detail cache (avoids re-calling ELMS on repeat page views)
+-- Invalidate by deleting the row when matter_tracking poll detects a status change.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS matter_detail_cache (
+    record_number TEXT PRIMARY KEY,
+    cached_at     TIMESTAMPTZ DEFAULT NOW(),
+    status        TEXT,
+    data          JSONB NOT NULL
+);
+
+-- Migration for existing deployments:
+-- (new table — just run the CREATE above)
+
+-- ---------------------------------------------------------------------------
+-- Email subscriptions
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS meeting_subscriptions (
+    id             SERIAL PRIMARY KEY,
+    email          TEXT NOT NULL,
+    body           TEXT NOT NULL,           -- e.g. "City Council", "Committee on Finance"
+    confirmed      BOOLEAN DEFAULT FALSE,
+    confirm_token  TEXT UNIQUE NOT NULL,
+    unsub_token    TEXT UNIQUE NOT NULL,
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(email, body)
+);
+CREATE INDEX IF NOT EXISTS meeting_subscriptions_body_idx ON meeting_subscriptions(body);
+
+-- Migration for existing deployments:
+-- ALTER TABLE meeting_subscriptions ADD CONSTRAINT meeting_subscriptions_email_body_key UNIQUE (email, body);
+
+CREATE TABLE IF NOT EXISTS matter_subscriptions (
+    id              SERIAL PRIMARY KEY,
+    email           TEXT NOT NULL,
+    record_number   TEXT NOT NULL,
+    last_status     TEXT,                   -- snapshot used to detect status changes
+    confirmed       BOOLEAN DEFAULT FALSE,
+    confirm_token   TEXT UNIQUE NOT NULL,
+    unsub_token     TEXT UNIQUE NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(email, record_number)
+);
+
+CREATE TABLE IF NOT EXISTS meeting_email_log (
+    id          SERIAL PRIMARY KEY,
+    email       TEXT NOT NULL,
+    meeting_id  TEXT NOT NULL,
+    email_type  TEXT NOT NULL,              -- 'agenda' | 'summary'
+    sent_at     TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(email, meeting_id, email_type)
+);
+
+-- Tracks each known meeting's state so the scheduler can diff across polls
+-- instead of re-examining everything from scratch each run.
+CREATE TABLE IF NOT EXISTS known_meetings (
+    meeting_id          TEXT PRIMARY KEY,
+    body                TEXT NOT NULL,
+    meeting_date        TEXT NOT NULL,          -- YYYY-MM-DD (date only, for window queries)
+    meeting_datetime    TIMESTAMPTZ,            -- full scheduled datetime from ELMS; drives DateTrigger polls
+    elms_status         TEXT,                   -- raw status from ELMS ("Scheduled & Published", etc.)
+    nonroutine_count    INTEGER DEFAULT 0,      -- non-routine item count; 0 = agenda not yet seen
+    routine_count       INTEGER DEFAULT 0,
+    location            TEXT,
+    agenda_sent_at      TIMESTAMPTZ,            -- non-NULL once agenda email dispatched
+    summary_sent_at     TIMESTAMPTZ,            -- non-NULL once post-meeting summary email dispatched
+    new_meeting_sent_at TIMESTAMPTZ,            -- non-NULL once "new meeting scheduled" alert sent
+    first_seen_at       TIMESTAMPTZ DEFAULT NOW(),
+    last_checked_at     TIMESTAMPTZ DEFAULT NOW()
+);
+-- Migration for existing deployments:
+-- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS routine_count INTEGER DEFAULT 0;
+-- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS location TEXT;
+-- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS meeting_datetime TIMESTAMPTZ;
+-- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS new_meeting_sent_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS known_meetings_date_idx ON known_meetings(meeting_date);
+CREATE INDEX IF NOT EXISTS known_meetings_body_idx ON known_meetings(body);
+
+-- Agenda item list cache — populated by scheduler when it fetches meeting items.
+-- Lets meeting_matters read the full item list without calling ELMS.
+CREATE TABLE IF NOT EXISTS meeting_items (
+    meeting_id    TEXT NOT NULL,
+    record_number TEXT NOT NULL,
+    matter_id     TEXT,
+    matter_title  TEXT,
+    matter_type   TEXT,
+    action_name   TEXT,
+    is_routine    BOOLEAN DEFAULT FALSE,
+    item_order    INTEGER DEFAULT 0,
+    cached_at     TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (meeting_id, record_number)
+);
+CREATE INDEX IF NOT EXISTS meeting_items_meeting_id_idx ON meeting_items(meeting_id);
+-- Migration for existing deployments: (new table — run the CREATE above)
+
+-- ---------------------------------------------------------------------------
+-- Illinois state additions
+-- ---------------------------------------------------------------------------
+
+-- Tag existing and new chunks by government scope (city vs. state)
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS source_scope TEXT DEFAULT 'city';
+
+-- Tag data queries by scope
+ALTER TABLE data_query_log ADD COLUMN IF NOT EXISTS query_scope TEXT DEFAULT 'city';
+
+-- Illinois Legiscan bill plain-language title cache (mirrors plain_language_titles)
+CREATE TABLE IF NOT EXISTS il_plain_language_titles (
+    bill_id        TEXT PRIMARY KEY,   -- Legiscan bill_id (integer stored as text)
+    session_id     TEXT,               -- Legiscan session_id for reference
+    original_title TEXT,
+    plain_title    TEXT NOT NULL,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Illinois Legiscan bill detail cache (mirrors matter_detail_cache)
+CREATE TABLE IF NOT EXISTS il_bill_detail_cache (
+    bill_id    TEXT PRIMARY KEY,
+    cached_at  TIMESTAMPTZ DEFAULT NOW(),
+    status     TEXT,
+    data       JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS il_bill_detail_cache_cached_at_idx
+    ON il_bill_detail_cache(cached_at);
+
+-- Illinois Legiscan document/amendment summary cache (mirrors attachment_summaries)
+CREATE TABLE IF NOT EXISTS il_document_summaries (
+    url_hash   TEXT PRIMARY KEY,  -- md5(url)
+    url        TEXT NOT NULL,
+    doc_type   TEXT,              -- 'bill_text' | 'amendment' | 'supplement'
+    summary    TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);

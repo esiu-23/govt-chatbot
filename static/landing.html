@@ -83,6 +83,34 @@
       gap: 24px;
     }
 
+    .analyses-section {
+      margin-top: 56px;
+    }
+
+    .analyses-section h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #003F87;
+      margin-bottom: 6px;
+      letter-spacing: -0.2px;
+    }
+
+    .analyses-section > p {
+      font-size: 0.9rem;
+      color: #666;
+      margin-bottom: 20px;
+    }
+
+    .analyses-cards {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    .card.card-analysis {
+      border-left: 4px solid #003F87;
+    }
+
     @media (max-width: 600px) {
       .cards { grid-template-columns: 1fr; }
       .header-inner h1 { font-size: 1.35rem; }
@@ -198,6 +226,19 @@
         <span class="card-cta">Browse legislation</span>
       </a>
     </div>
+
+    <section class="analyses-section">
+      <h2>Analyses</h2>
+      <p>Data-driven looks at how Chicago government works.</p>
+      <div class="analyses-cards">
+        <a class="card card-analysis" href="/analyses/who-controls-chicago">
+          <span class="card-number">Analysis 1</span>
+          <h3>Who Controls Chicago?</h3>
+          <p>See who holds decision-making power in city government — elected officials and their appointees — and how much money flows through each department in budget, contracts, and off-budget TIF spending.</p>
+          <span class="card-cta">Explore the diagram</span>
+        </a>
+      </div>
+    </section>
   </main>
 
   <footer>
