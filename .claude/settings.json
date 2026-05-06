@@ -3,7 +3,8 @@
     "allow": [
       "Bash(curl -s *)",
       "Bash(curl -sv *)",
-      "Bash(curl -v *)"
+      "Bash(curl -v *)",
+      "Bash(python -c ' *)"
     ]
   }
 }

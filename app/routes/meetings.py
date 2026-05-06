@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from flask import Blueprint, jsonify, request
 
 from ..data_sources.elms import (
     fetch_meeting_items, fetch_matter_detail_slim,
+    get_meeting_document_summaries,
     meeting_summary, plain_language_titles,
 )
 from ..db import _db
@@ -28,6 +30,7 @@ def meetings_recent():
     try:
         results = _meetings_from_db(limit=5)
         if results:
+            _trigger_missing_summaries(results)
             payload = {"meetings": results}
             _cache["recent"] = {"ts": time.time(), "data": payload}
             return jsonify(payload)
@@ -79,6 +82,7 @@ def meetings_all():
         return jsonify(cached["data"])
     try:
         results = _meetings_from_db(limit=50)
+        _trigger_missing_summaries(results)
         payload = {"meetings": results}
         _cache["all"] = {"ts": time.time(), "data": payload}
         return jsonify(payload)
@@ -96,6 +100,17 @@ def meeting_matters(meeting_id):
         items = _items_from_cache(meeting_id) or fetch_meeting_items(meeting_id)
         valid_items = [i for i in items if i.get("recordNumber")]
 
+        if not valid_items:
+            docs = get_meeting_document_summaries(meeting_id)
+            return jsonify({
+                "matters": [],
+                "total": 0,
+                "offset": 0,
+                "limit": limit,
+                "hasNoMatters": True,
+                "meetingDocuments": docs,
+            })
+
         sorted_items = (
             [i for i in valid_items if not i.get("isRoutine")]
             + [i for i in valid_items if i.get("isRoutine")]
@@ -104,7 +119,7 @@ def meeting_matters(meeting_id):
         page  = sorted_items[offset: offset + limit]
 
         detail_map = {}
-        with ThreadPoolExecutor(max_workers=10) as pool:
+        with ThreadPoolExecutor(max_workers=5) as pool:
             futures = {
                 pool.submit(_slim_from_cache, i["recordNumber"]): i["recordNumber"]
                 for i in page
@@ -258,6 +273,44 @@ def _seed_known_meeting(m: dict) -> None:
         logger.warning("[meetings] seed_known_meeting %s: %s", mid, e)
 
 
+def _trigger_missing_summaries(meetings: list[dict]) -> None:
+    """Fire a background thread to generate summaries for past meetings that lack one."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    unsummarized = [
+        m for m in meetings
+        if not m.get("summary") and (m.get("date") or "") <= today
+    ]
+    if unsummarized:
+        t = threading.Thread(target=_generate_missing_summaries, args=(unsummarized,), daemon=True)
+        t.start()
+
+
+def _generate_missing_summaries(meetings: list[dict]) -> None:
+    """Generate and cache meeting summaries in the background.
+
+    For meetings with agenda items: summarizes the items.
+    For meetings with no items: summarizes meeting documents (handled inside meeting_summary).
+    Clears the in-process route cache after all summaries are written so the next
+    request picks them up.
+    """
+    for m in meetings:
+        meeting_id = m.get("meetingId")
+        body       = m.get("body", "")
+        date_str   = (m.get("date") or "")[:10]
+        if not meeting_id:
+            continue
+        try:
+            items = _items_from_cache(meeting_id)
+            if not items:
+                items = fetch_meeting_items(meeting_id)
+            meeting_summary(meeting_id, body, date_str, items)
+        except Exception as e:
+            logger.warning("[meetings] bg summary gen failed for %s: %s", meeting_id, e)
+    # Bust the in-memory cache so the next /meetings/recent or /all load sees new summaries
+    _cache.pop("recent", None)
+    _cache.pop("all", None)
+
+
 def _elms_get_meetings(top: int = 100):
     from ..data_sources.elms import _elms_get
     return _elms_get("/meeting-agenda", {"top": top, "orderby": "date desc"})
@@ -300,11 +353,10 @@ def _enrich_meeting(m: dict):
         items = fetch_meeting_items(meeting_id)
     except Exception:
         items = []
-    if not items:
-        return None
     routine_count = sum(1 for i in items if i.get("isRoutine"))
     non_routine_count = len(items) - routine_count
     date_str = (m.get("date") or "")[:10]
+    # meeting_summary handles the no-items case by summarizing meeting documents
     summary = meeting_summary(meeting_id, m.get("body", ""), date_str, items)
     return {
         "meetingId": meeting_id,
