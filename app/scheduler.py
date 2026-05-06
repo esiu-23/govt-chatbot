@@ -1,32 +1,17 @@
 """
-APScheduler jobs for meeting email notifications and matter status polling.
+Scheduler jobs for meeting email notifications and matter status polling.
 
-Architecture
-────────────
-Two distinct jobs with distinct responsibilities:
+Run daily by Render cron (scheduler_worker.py). Three public entry points:
 
-1. sync_meeting_schedule()  — runs once a day at startup + every 24 h.
-   Fetches ONLY the lightweight meeting list from ELMS (no agenda content).
-   For each NEW meeting discovered:
-     • Upserts into known_meetings with meeting_datetime
-     • Schedules two one-shot DateTrigger polls: at meeting start time and
-       24 h after (expected end)
-     • If subscribers exist, fetches the full meeting record for
-       publicCommentDeadline and sends a "new meeting scheduled" alert email
-   For existing meetings: updates meeting_datetime if missing and
-   re-registers DateTrigger polls (so they survive app restarts).
-
-2. check_and_send_meeting_emails()  — safety-net, runs every 4 h AND is
-   called by the DateTrigger polls at meeting start/end times.
-   Queries known_meetings (never ELMS) for meetings needing agenda or
-   summary emails, fetches+caches content from ELMS only for those meetings,
-   and populates meeting_items + matter_detail_cache so page loads are DB-only.
+  sync_meeting_schedule()        — discover new meetings, send new-meeting alerts
+  check_and_send_meeting_emails() — send agenda/summary emails for known meetings
+  check_and_send_matter_updates() — email subscribers when matter status changes
 
 Email types
 ───────────
   new_meeting  sent by sync_meeting_schedule on first discovery
   agenda       sent when a meeting with non-routine items is upcoming
-  summary      sent after the meeting ends (≥3 h past start time)
+  summary      sent after the meeting ends
 """
 
 import logging
@@ -56,15 +41,9 @@ from .email.templates import (
 
 logger = logging.getLogger(__name__)
 
-_SUBSCRIBABLE_BODIES = ["City Council"] + sorted(_COMMITTEE_CHAIRS.keys())
-
-# ELMS status values that indicate the agenda has been officially published.
-# "Scheduled & Published" is what the live ELMS API actually returns.
-_PUBLISHED_STATUSES = {"published", "agenda published", "final agenda", "scheduled & published"}
-
 
 # ---------------------------------------------------------------------------
-# Public entry points (called by APScheduler)
+# Public entry points
 # ---------------------------------------------------------------------------
 
 def sync_meeting_schedule() -> None:
@@ -80,9 +59,8 @@ def sync_meeting_schedule() -> None:
     so they survive app restarts.
     """
     logger.info("[scheduler] daily schedule sync starting")
-    now       = datetime.now(timezone.utc)
-    today_str = now.date().isoformat()
-    end_str   = (now.date() + timedelta(days=90)).isoformat()
+    now     = datetime.now(timezone.utc)
+    end_str = (now.date() + timedelta(days=90)).isoformat()
 
     try:
         raw = _elms_get("/meeting-agenda", {"top": 300, "orderby": "date asc"})
@@ -104,7 +82,6 @@ def sync_meeting_schedule() -> None:
             upcoming.append(m)
 
     known_ids = _get_known_meeting_ids()
-    scheduler  = _get_scheduler()
     new_count  = 0
 
     for m in upcoming:
@@ -125,10 +102,6 @@ def sync_meeting_schedule() -> None:
 
         # Upsert schedule metadata only — no content fetch here
         _upsert_meeting_state(meeting_id, body, date_str, elms_status, 0, meeting_datetime=meeting_dt)
-
-        # Register DateTrigger polls for every upcoming meeting so they survive restarts
-        if scheduler and meeting_dt and meeting_dt > now:
-            _schedule_targeted_polls(scheduler, meeting_id, meeting_dt)
 
         if is_new:
             new_count += 1
@@ -213,8 +186,6 @@ def check_and_send_meeting_emails() -> None:
             logger.info("[scheduler] summary email sent: %s %s", body, meeting_date)
 
         _touch_meeting_state(meeting_id, elms_status)
-
-    _reschedule_meeting_job()
 
 
 def check_and_send_matter_updates() -> None:
@@ -320,39 +291,6 @@ def _fmt_deadline(deadline_iso: str) -> str:
         return dt.astimezone(ZoneInfo("America/Chicago")).strftime("%-m/%-d/%Y at %-I:%M %p CT")
     except Exception:
         return deadline_iso[:16].replace("T", " ") + " UTC"
-
-
-# ---------------------------------------------------------------------------
-# DateTrigger poll scheduling
-# ---------------------------------------------------------------------------
-
-def _schedule_targeted_polls(scheduler, meeting_id: str, meeting_dt: datetime) -> None:
-    """Register one-shot content pulls at meeting start time and 3 h after.
-
-    Using replace_existing=True means re-running on restart safely overwrites
-    any previously registered jobs for the same meeting.
-    """
-    from apscheduler.triggers.date import DateTrigger
-    now = datetime.now(timezone.utc)
-
-    if meeting_dt > now:
-        scheduler.add_job(
-            check_and_send_meeting_emails,
-            trigger=DateTrigger(run_date=meeting_dt),
-            id=f"poll_start_{meeting_id}",
-            replace_existing=True,
-            max_instances=1,
-        )
-
-    post_dt = meeting_dt + timedelta(hours=24)
-    if post_dt > now:
-        scheduler.add_job(
-            check_and_send_meeting_emails,
-            trigger=DateTrigger(run_date=post_dt),
-            id=f"poll_end_{meeting_id}",
-            replace_existing=True,
-            max_instances=1,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -520,111 +458,6 @@ def _dispatch_meeting_emails(
             subj, html = render_summary_email(body, date_str, summary_text, enriched, routine_count, unsub_url)
         if send_email(email_addr, subj, html):
             _log_sent(email_addr, meeting_id, email_type)
-
-
-# ---------------------------------------------------------------------------
-# Adaptive rescheduling
-# ---------------------------------------------------------------------------
-
-def _reschedule_meeting_job() -> None:
-    """
-    Adjust the meeting-email job interval based on how soon the nearest
-    upcoming meeting is.  Tighter polls as a meeting approaches.
-    """
-    try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.interval import IntervalTrigger
-
-        scheduler = _get_scheduler()
-        if scheduler is None:
-            return
-
-        days_until = _days_until_next_subscribed_meeting()
-
-        if days_until is None:
-            hours = 6       # no upcoming meetings — idle pace
-        elif days_until < 2:
-            hours = None    # < 2 days out: poll every 20 minutes
-            minutes = 20
-        elif days_until < 7:
-            hours = 1       # 2-7 days out: hourly
-            minutes = None
-        elif days_until < 14:
-            hours = 2       # 1-2 weeks out: every 2 hours
-            minutes = None
-        else:
-            hours = 6       # > 2 weeks out: every 6 hours
-            minutes = None
-
-        if hours is None:
-            trigger = IntervalTrigger(minutes=minutes)
-            interval_desc = f"{minutes}min"
-        else:
-            trigger = IntervalTrigger(hours=hours)
-            interval_desc = f"{hours}h"
-
-        scheduler.reschedule_job("meeting_emails", trigger=trigger)
-        logger.info("[scheduler] rescheduled meeting_emails to every %s (next meeting in %s days)",
-                    interval_desc, days_until)
-    except Exception as e:
-        logger.warning("[scheduler] reschedule failed (non-fatal): %s", e)
-
-
-_scheduler_ref = None  # set by start_scheduler()
-
-def _get_scheduler():
-    return _scheduler_ref
-
-
-def _days_until_next_subscribed_meeting() -> int | None:
-    """Return days until the nearest relevant subscribed meeting.
-
-    Returns 0 if a meeting from yesterday or today still awaits a summary
-    (keeps the 20-min polling cadence active right after meetings end).
-    """
-    today = datetime.now(timezone.utc).date()
-    yesterday = (today - timedelta(days=1)).isoformat()
-    today_str = today.isoformat()
-    try:
-        with _db() as conn:
-            cur = conn.cursor()
-            # If any recent meeting still needs a summary, poll frequently so
-            # the email goes out the same day the meeting data becomes available.
-            cur.execute(
-                """SELECT 1 FROM known_meetings km
-                   WHERE km.meeting_date BETWEEN %s AND %s
-                     AND km.summary_sent_at IS NULL
-                     AND EXISTS (
-                       SELECT 1 FROM meeting_subscriptions ms
-                       WHERE ms.body = km.body AND ms.confirmed = TRUE
-                     )
-                   LIMIT 1""",
-                (yesterday, today_str),
-            )
-            if cur.fetchone():
-                return 0  # < 2-day branch → 20-min polling
-
-            # Normal: next upcoming meeting
-            cur.execute(
-                """SELECT km.meeting_date
-                   FROM known_meetings km
-                   WHERE km.meeting_date > %s
-                     AND km.agenda_sent_at IS NULL
-                     AND EXISTS (
-                       SELECT 1 FROM meeting_subscriptions ms
-                       WHERE ms.body = km.body AND ms.confirmed = TRUE
-                     )
-                   ORDER BY km.meeting_date ASC
-                   LIMIT 1""",
-                (today_str,),
-            )
-            row = cur.fetchone()
-            if row:
-                next_date = datetime.strptime(row[0], "%Y-%m-%d").date()
-                return (next_date - today).days
-    except Exception:
-        pass
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -867,52 +700,3 @@ def _get_cached_attachment_summary(record_number: str) -> str | None:
             return row[0] if row else None
     except Exception:
         return None
-
-
-# ---------------------------------------------------------------------------
-# Scheduler registration
-# ---------------------------------------------------------------------------
-
-def start_scheduler(app) -> None:
-    """Register and start APScheduler background jobs."""
-    global _scheduler_ref
-    try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.interval import IntervalTrigger
-
-        scheduler = BackgroundScheduler(daemon=True)
-        _scheduler_ref = scheduler
-
-        # Daily schedule sync — runs immediately at startup so DateTrigger polls
-        # for all upcoming meetings are re-registered after restarts.
-        scheduler.add_job(
-            sync_meeting_schedule,
-            trigger=IntervalTrigger(hours=24),
-            id="sync_meetings",
-            replace_existing=True,
-            max_instances=1,
-            next_run_time=datetime.now(timezone.utc),
-        )
-
-        # Safety-net fallback: catches anything the DateTrigger polls miss
-        # (e.g., past meetings whose post-poll fired before the app was running).
-        scheduler.add_job(
-            check_and_send_meeting_emails,
-            trigger=IntervalTrigger(hours=24),
-            id="meeting_emails",
-            replace_existing=True,
-            max_instances=1,
-        )
-
-        scheduler.add_job(
-            check_and_send_matter_updates,
-            trigger=IntervalTrigger(hours=24),
-            id="matter_updates",
-            replace_existing=True,
-            max_instances=1,
-        )
-        scheduler.start()
-        logger.info("[scheduler] started — sync_meetings at startup + every 24h; "
-                    "meeting_emails every 24h (fallback); matter_updates every 24h")
-    except Exception as e:
-        logger.error("[scheduler] failed to start: %s", e)

@@ -666,13 +666,7 @@
     .leg-back-btn:hover { text-decoration: underline; }
     .leg-matter-title { font-size: 1.1rem; font-weight: 700; color: #1a202c; margin-bottom: 6px; }
     .leg-matter-meta { font-size: 0.83rem; color: #718096; margin-bottom: 18px; line-height: 1.6; }
-    .leg-timeline-heading {
-      font-weight: 700; font-size: 0.8rem; color: #4a5568;
-      text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px;
-    }
     .leg-action { border-left: 3px solid #003F87; padding: 8px 0 8px 14px; margin-bottom: 12px; }
-    .leg-action-date { font-size: 0.8rem; color: #718096; margin-bottom: 2px; }
-    .leg-action-header { font-weight: 600; color: #1a202c; font-size: 0.9rem; }
     .leg-meeting-detail { font-size: 0.82rem; color: #4a5568; margin-top: 4px; }
     .leg-meeting-detail a { color: #003F87; text-decoration: none; }
     .leg-meeting-detail a:hover { text-decoration: underline; }
@@ -726,6 +720,13 @@
     .leg-meeting-summary { font-size: 0.88rem; color: #4a5568; line-height: 1.55; margin-bottom: 6px; }
     .leg-meeting-counts { font-size: 0.78rem; color: #718096; }
     .leg-meeting-counts .nr { color: #003F87; font-weight: 600; }
+    .leg-no-matters-notice { font-size: 0.9rem; color: #4a5568; background: #f0f4ff; border: 1px solid #c3d3f7; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+    .leg-meeting-docs { margin-top: 4px; }
+    .leg-meeting-docs-label { font-size: 0.78rem; font-weight: 600; color: #718096; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }
+    .leg-meeting-doc-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+    .leg-meeting-doc-name { font-size: 0.88rem; font-weight: 600; color: #003F87; text-decoration: none; }
+    .leg-meeting-doc-name:hover { text-decoration: underline; }
+    .leg-meeting-doc-summary { font-size: 0.85rem; color: #4a5568; line-height: 1.5; margin: 6px 0 0; }
     .sub-meeting-card-btn {
       flex-shrink: 0; font-size: 0.78rem; color: #003F87; background: none;
       border: 1px solid #c3d3f7; padding: 6px 12px; border-radius: 16px;
@@ -757,7 +758,10 @@
       transition: opacity .15s; text-transform: none; letter-spacing: 0;
     }
     .ai-tooltip-icon:hover::after { opacity: 1; }
-    .ai-summary-item { margin-bottom: 10px; }
+    .leg-ai-items { margin: 14px 0; }
+    .leg-doc-pair { margin-bottom: 10px; }
+    .leg-doc-pair:last-child { margin-bottom: 0; }
+    .ai-summary-item { margin-bottom: 14px; }
     .ai-summary-item:last-child { margin-bottom: 0; }
     .ai-summary-label {
       font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
@@ -841,6 +845,75 @@
     .sub-track-final {
       display: inline-block; font-size: 0.8rem; color: #718096;
       font-style: italic; margin: 12px 0;
+    }
+    /* ── Legislative Timeline ─────────────────────────── */
+    .leg-tracker-section { margin: 14px 0 20px; }
+    .leg-tracker-heading {
+      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #4a5568; margin-bottom: 14px;
+    }
+    .leg-tracker {
+      display: flex; flex-direction: row; align-items: flex-start;
+      gap: 0; position: relative;
+    }
+    .leg-tracker-step {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; position: relative; min-width: 0;
+    }
+    .leg-tracker-step::after {
+      content: ""; position: absolute; top: 18px; left: 50%;
+      width: 100%; height: 3px; background: #e2e8f0; z-index: 0;
+    }
+    .leg-tracker-step:last-child::after { display: none; }
+    .leg-tracker-circle {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 3px solid #e2e8f0; background: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 700; color: #a0aec0;
+      position: relative; z-index: 1; flex-shrink: 0;
+      transition: border-color .2s, background .2s, color .2s;
+    }
+    .leg-tracker-label {
+      font-size: 0.72rem; font-weight: 600; color: #4a5568;
+      text-align: center; margin-top: 7px; line-height: 1.3;
+      max-width: 80px; word-wrap: break-word;
+    }
+    .leg-tracker-sublabel {
+      font-size: 0.65rem; color: #a0aec0; text-align: center;
+      margin-top: 2px; max-width: 80px;
+    }
+    .leg-tracker-date {
+      font-size: 0.62rem; color: #718096; text-align: center;
+      margin-top: 2px; max-width: 80px; font-style: italic;
+    }
+    .leg-tracker-action {
+      font-size: 0.65rem; font-weight: 600; color: #2d3748; text-align: center;
+      margin-top: 3px; max-width: 80px; line-height: 1.3;
+    }
+    .leg-tracker-step--complete .leg-tracker-circle { background: #276749; border-color: #276749; color: #fff; }
+    .leg-tracker-step--complete::after { background: #276749; }
+    .leg-tracker-step--complete .leg-tracker-label { color: #276749; }
+    .leg-tracker-step--current .leg-tracker-circle {
+      background: #003F87; border-color: #003F87; color: #fff;
+      animation: leg-tracker-pulse 1.8s ease-in-out infinite;
+    }
+    .leg-tracker-step--current .leg-tracker-label { color: #003F87; font-weight: 700; }
+    @keyframes leg-tracker-pulse {
+      0%, 100% { box-shadow: 0 0 0 0   rgba(0, 63, 135, 0.45); }
+      50%       { box-shadow: 0 0 0 8px rgba(0, 63, 135, 0);    }
+    }
+    .leg-tracker-step--blocked .leg-tracker-circle { background: #fff; border-color: #b7791f; color: #b7791f; }
+    .leg-tracker-step--blocked .leg-tracker-label { color: #b7791f; }
+    .leg-tracker-step--not_applicable .leg-tracker-circle { background: #f7fafc; border-color: #e2e8f0; color: #cbd5e0; }
+    .leg-tracker-step--not_applicable .leg-tracker-label,
+    .leg-tracker-step--not_applicable .leg-tracker-sublabel { color: #a0aec0; }
+    @media (max-width: 600px) {
+      .leg-tracker { flex-direction: column; align-items: stretch; }
+      .leg-tracker-step { flex-direction: row; align-items: flex-start; gap: 12px; padding-bottom: 20px; }
+      .leg-tracker-step::after { top: 36px; left: 17px; width: 3px; height: calc(100% - 20px); }
+      .leg-tracker-circle { flex-shrink: 0; }
+      .leg-tracker-label { text-align: left; max-width: none; margin-top: 0; font-size: 0.8rem; }
+      .leg-tracker-sublabel, .leg-tracker-date, .leg-tracker-action { text-align: left; max-width: none; }
     }
   </style>
 </head>
@@ -1742,7 +1815,7 @@
     }
     resultsEl.innerHTML = meetings.map(m => {
       const date = m.date
-        ? new Date(m.date).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+        ? new Date(m.date + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
         : "";
       const label = `${escLeg(m.body || "Meeting")} — ${date}`;
       const counts = m.totalCount
@@ -1805,6 +1878,25 @@
       .then(r => r.json())
       .then(data => {
         clearSkelTimer();
+        if (data.hasNoMatters) {
+          let html = '<div class="leg-no-matters-notice">No specific matters were voted on at this meeting.</div>';
+          const docs = data.meetingDocuments || [];
+          if (docs.length) {
+            html += '<div class="leg-meeting-docs">';
+            html += '<div class="leg-meeting-docs-label">Meeting documents</div>';
+            docs.forEach(d => {
+              html += '<div class="leg-meeting-doc-card">';
+              html += `<a class="leg-meeting-doc-name" href="${escLeg(d.url)}" target="_blank" rel="noopener">${escLeg(d.name)}</a>`;
+              if (d.summary) html += `<p class="leg-meeting-doc-summary">${escLeg(d.summary)}</p>`;
+              html += '</div>';
+            });
+            html += '</div>';
+          }
+          resultsEl.innerHTML = html;
+          document.getElementById("leg-browse-link").style.display = "none";
+          document.getElementById("leg-see-more").style.display = "none";
+          return;
+        }
         legCurrentResults = data.matters || [];
         legMeetingOffset  = legCurrentResults.length;
         legMeetingTotal   = data.total || 0;
@@ -1886,7 +1978,7 @@
     let displayStatus = /^final$/i.test(status) && rawSub ? rawSub : status;
     let statusClass;
     if (/in committee/i.test(displayStatus)) {
-      const intro = m.introductionDate ? new Date(m.introductionDate) : null;
+      const intro = m.introductionDate ? new Date(m.introductionDate + "T12:00:00") : null;
       const daysSince = intro ? (Date.now() - intro.getTime()) / 86400000 : 0;
       if (daysSince > 180) {
         displayStatus = "In Committee — Stale";
@@ -1901,7 +1993,7 @@
                   : "leg-status-other";
     }
     const date = m.introductionDate
-      ? new Date(m.introductionDate).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+      ? new Date(m.introductionDate + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
       : "";
     const body     = m.controllingBody || "";
     const subtitle = m.plainLanguageTitle && m.plainLanguageTitle !== m.title
@@ -1972,7 +2064,7 @@
     const rawSub    = (matter.substatus || "").replace(/^\d+-/, "");
     let displayStatus = /^final$/i.test(rawStatus) && rawSub ? rawSub : rawStatus;
     if (/in committee/i.test(displayStatus)) {
-      const intro = matter.introductionDate ? new Date(matter.introductionDate) : null;
+      const intro = matter.introductionDate ? new Date(matter.introductionDate + "T12:00:00") : null;
       const daysSince = intro ? (Date.now() - intro.getTime()) / 86400000 : 0;
       displayStatus = daysSince > 180 ? "In Committee — Stale" : "In Committee — Active";
     }
@@ -1981,23 +2073,9 @@
     const sponsor = matter.filingSponsor || (matter.sponsors && matter.sponsors[0]) || "";
     const body    = matter.controllingBody || "";
     const intro   = matter.introductionDate
-      ? new Date(matter.introductionDate).toLocaleDateString("en-US", {month:"long", day:"numeric", year:"numeric"})
+      ? new Date(matter.introductionDate + "T12:00:00").toLocaleDateString("en-US", {month:"long", day:"numeric", year:"numeric"})
       : "";
 
-    const actionsHtml = (matter.actions || []).map(action => {
-      const actionDate = action.actionDate
-        ? new Date(action.actionDate).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
-        : "";
-      let meetingHtml = "";
-      const referralHtml = action.statusContext
-        ? `<div class="leg-status-context">${escLeg(action.statusContext)}</div>`
-        : "";
-      return `<div class="leg-action">
-        <div class="leg-action-date">${escLeg(actionDate)}</div>
-        <div class="leg-action-header">${escLeg(action.actionName || "")}${action.actionByName ? " — " + escLeg(action.actionByName) : ""}</div>
-        ${referralHtml}${meetingHtml}
-      </div>`;
-    }).join("");
 
     const metaParts = [
       matter.recordNumber,
@@ -2012,22 +2090,25 @@
       ? `<div class="leg-matter-subtitle">${escLeg(matter.plainLanguageTitle)}</div>`
       : "";
 
-    // Related documents — links only (summaries move to AI section)
-    const reportFilesHtml = (matter.matterAttachments && matter.matterAttachments.length)
-      ? `<div class="leg-timeline-heading" style="margin-top:16px">Related Documents</div>` +
-        matter.matterAttachments.map(f => {
-          const url  = escLeg(f.path || f.url || "");
-          const name = escLeg(f.fileName || f.name || f.type || "Document");
-          return `<div class="leg-meeting-detail" style="margin-top:4px">📄 <a href="${url}" target="_blank" rel="noreferrer">${name}</a></div>`;
-        }).join("")
-      : "";
-
-    // Strip any markdown formatting Claude may have included in AI-generated text
+    // Strip markdown block headings and bold markers from plain text fields
     function stripMd(s) {
       return (s || "").replace(/^#+\s*/gm, "").replace(/\*\*/g, "").replace(/\*/g, "").trim();
     }
 
-    // AI summaries — type explanation, status context, legislation summary from attachments
+    // Convert markdown in document summaries: # Heading → bold on new line; strip other markers
+    function formatSummary(s) {
+      if (!s) return "";
+      return s.split("\n").map(line => {
+        const headingMatch = line.match(/^#+\s+(.+)/);
+        if (headingMatch) {
+          return `<br><strong>${escLeg(headingMatch[1].replace(/\*\*/g, "").trim())}</strong>`;
+        }
+        const cleaned = line.replace(/\*\*/g, "").replace(/\*/g, "").trim();
+        return cleaned ? escLeg(cleaned) : "";
+      }).filter(Boolean).join(" ");
+    }
+
+    // Type and status as plain body text (no box wrapper)
     const aiItems = [];
     if (matter.typeDescription) {
       const article = /^[aeiou]/i.test(type) ? "an" : "a";
@@ -2042,24 +2123,80 @@
         <div class="ai-summary-text">${escLeg(stripMd(matter.statusContext))}</div>
       </div>`);
     }
-    // Combine all document summaries into one block; strip markdown from each
-    const docSummaries = (matter.matterAttachments || [])
-      .map(f => stripMd(f.summary)).filter(Boolean);
-    const attachSummary = docSummaries.join(" ");
-    if (attachSummary) {
+
+    // Paired documents + summaries under "Legislation Summary"
+    const attachments = (matter.matterAttachments || []).filter(f => f.path || f.url);
+    const hasDocContent = attachments.some(f => f.summary || f.path || f.url);
+    if (hasDocContent) {
+      const pairedHtml = attachments.map(f => {
+        const url  = escLeg(f.path || f.url || "");
+        const name = escLeg(f.fileName || f.name || f.type || "Document");
+        const summaryHtml = f.summary ? `<div class="ai-summary-text" style="margin-top:4px">${formatSummary(f.summary)}</div>` : "";
+        return `<div class="leg-doc-pair">
+          <div class="leg-meeting-detail">📄 <a href="${url}" target="_blank" rel="noreferrer">${name}</a></div>
+          ${summaryHtml}
+        </div>`;
+      }).join("");
       aiItems.push(`<div class="ai-summary-item">
-        <div class="ai-summary-label">Legislation Summary</div>
-        <div class="ai-summary-text">${escLeg(attachSummary)}</div>
+        <div class="ai-summary-label">Legislation Summary
+          <span class="ai-tooltip-icon" data-tip="Summaries are auto-generated by AI to make legislation easier to understand. Always verify with official sources.">?</span>
+        </div>
+        ${pairedHtml}
       </div>`);
     }
-    const aiSummaryHtml = aiItems.length ? `
-      <div class="ai-summary-section">
-        <div class="ai-summary-heading">
-          About This Legislation
-          <span class="ai-tooltip-icon" data-tip="These explanations are auto-generated by AI to make legislation easier to understand. Always verify with official sources.">?</span>
+
+    const aiSummaryHtml = aiItems.length
+      ? `<div class="leg-ai-items">${aiItems.join("")}</div>`
+      : "";
+
+    const reportFilesHtml = "";
+
+    function _trackerIcon(status, n) {
+      if (status === "complete")       return "&#10003;";
+      if (status === "blocked")        return "&#10005;";
+      if (status === "not_applicable") return "&mdash;";
+      return String(n);
+    }
+
+    const trackerHtml = (() => {
+      const steps = matter.legislativeTracker;
+      if (!steps || !steps.length) return "";
+
+      const stepsHtml = steps.map((step, i) => {
+        const icon = _trackerIcon(step.status, i + 1);
+        const dateStr = step.date
+          ? new Date(step.date + "T12:00:00").toLocaleDateString("en-US",
+              { month: "short", day: "numeric", year: "numeric" })
+          : "";
+        let sublabel = step.sublabel;
+        if (step.status === "not_applicable") sublabel = "Not applicable";
+        if (step.status === "blocked" && step.actionName) sublabel = step.actionName;
+
+        const showAction = step.actionName
+          && ["complete", "current", "blocked"].includes(step.status)
+          && !(step.status === "blocked");  // blocked already uses actionName as sublabel
+        const actionNameHtml = showAction
+          ? `<div class="leg-tracker-action">${escLeg(step.actionName)}</div>`
+          : "";
+
+        return `<div class="leg-tracker-step leg-tracker-step--${escLeg(step.status)}"
+                     role="listitem"
+                     aria-label="Step ${i+1}: ${escLeg(step.label)} — ${escLeg(step.status)}${dateStr ? ", " + escLeg(dateStr) : ""}">
+          <div class="leg-tracker-circle" aria-hidden="true">${icon}</div>
+          <div class="leg-tracker-label">${escLeg(step.label)}</div>
+          <div class="leg-tracker-sublabel">${escLeg(sublabel)}</div>
+          ${actionNameHtml}
+          ${dateStr ? `<div class="leg-tracker-date">${escLeg(dateStr)}</div>` : ""}
+        </div>`;
+      }).join("");
+
+      return `<div class="leg-tracker-section">
+        <div class="leg-tracker-heading">Legislative Timeline</div>
+        <div class="leg-tracker" role="list" aria-label="Legislative timeline steps">
+          ${stepsHtml}
         </div>
-        ${aiItems.join("")}
-      </div>` : "";
+      </div>`;
+    })();
 
     const whatHtml = (matter.whatCanYouDo && matter.whatCanYouDo.length)
       ? `<div class="leg-what-heading">What can you do?</div>` +
@@ -2087,9 +2224,7 @@
       ${trackBtn}
       ${reportFilesHtml}
       ${aiSummaryHtml}
-      ${actionsHtml
-        ? `<div class="leg-timeline-heading" style="margin-top:16px">Timeline</div>${actionsHtml}`
-        : '<p class="leg-empty">No actions recorded.</p>'}
+      ${trackerHtml}
       ${whatHtml}
     `;
   }
@@ -2284,7 +2419,7 @@
                     : /vetoed|failed|dead/i.test(status) ? "leg-status-other"
                     : "leg-status-active";
     const date = b.last_action_date
-      ? new Date(b.last_action_date).toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+      ? new Date(b.last_action_date + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
       : "";
     const subtitle = b.plainLanguageTitle && b.plainLanguageTitle !== b.title
       ? `<div class="leg-card-subtitle">${escIl(b.plainLanguageTitle)}</div>`

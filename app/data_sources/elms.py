@@ -82,6 +82,10 @@ _STATUS_CONTEXT: dict[str, str] = {
         "Pursuant to City Council Rule 41, all proposed legislation is automatically referred to a committee "
         "for consideration and only acted upon by the City Council at a subsequent meeting."
     ),
+    "recommended_to_pass": (
+        "The committee has recommended that the full City Council approve this legislation. "
+        "It has NOT yet been voted on by the full City Council — that vote is the next step."
+    ),
     "passed": (
         "The City Council voted to approve this legislation. "
         "If it is an ordinance, it has the force of law once signed by the Mayor. "
@@ -423,8 +427,107 @@ def get_enriched_matter(record_number: str) -> dict:
     return matter
 
 
+def _build_legislative_tracker(matter: dict) -> list:
+    actions = matter.get("actions") or []  # already sorted ascending
+    matter_type = (matter.get("type") or "").lower()
+
+    _MAYOR_NA_TYPES = {"resolution", "order", "appointment", "claim",
+                       "communication", "oath", "report"}
+    mayor_na = any(t in matter_type for t in _MAYOR_NA_TYPES)
+
+    referred_action = committee_hearing_action = committee_outcome_action = None
+    council_vote_action = mayor_action_action = None
+    blocked_at_committee = blocked_at_council = blocked_at_mayor = False
+    withdrawn_overall = False
+
+    for action in actions:
+        name = (action.get("actionName") or "").lower().strip()
+        committee_body = (action.get("actionByName") or "").lower()
+
+        if referred_action is None and "refer" in name:
+            referred_action = action
+
+        def _is_committee_outcome(n):
+            return (
+                n.startswith("recommend")
+                or n in {"tabled", "held in committee", "substituted",
+                         "deferred and published", "failed to pass",
+                         "passed", "passed as amended", "approved", "approved as amended"}
+                or any(kw in n for kw in ["substitute recommended", "approved as substituted"])
+            )
+
+        if committee_hearing_action is None and "refer" not in name:
+            if "committee" in committee_body or _is_committee_outcome(name):
+                committee_hearing_action = action
+
+        if committee_outcome_action is None and _is_committee_outcome(name):
+            committee_outcome_action = action
+            if name in ("tabled", "held in committee"):
+                blocked_at_committee = True
+
+        def _is_council_vote(n):
+            return (
+                n.startswith("passed") or n.startswith("approved")
+                or n in {"adopted", "failed to pass"}
+                or n.startswith("adopted")
+            )
+
+        if council_vote_action is None and _is_council_vote(name) and "council" in committee_body:
+            council_vote_action = action
+            if "fail" in name:
+                blocked_at_council = True
+
+        if mayor_action_action is None and ("sign" in name or "veto" in name):
+            mayor_action_action = action
+            if "veto" in name:
+                blocked_at_mayor = True
+
+        if "withdraw" in name:
+            withdrawn_overall = True
+
+    def _step(sid, label, sublabel, status, action_obj):
+        return {
+            "id": sid, "label": label, "sublabel": sublabel, "status": status,
+            "date": (action_obj.get("actionDate") or None) if action_obj else None,
+            "actionName": (action_obj.get("actionName") or None) if action_obj else None,
+        }
+
+    s1 = "complete" if referred_action else "pending"
+    s2 = ("complete" if committee_hearing_action
+          else "current" if s1 == "complete" and not withdrawn_overall
+          else "pending")
+    s3 = ("blocked" if (committee_outcome_action and blocked_at_committee)
+          else "complete" if committee_outcome_action
+          else "blocked" if withdrawn_overall
+          else "current" if s2 == "complete"
+          else "pending")
+    s4 = ("blocked" if (council_vote_action and blocked_at_council)
+          else "complete" if council_vote_action
+          else "blocked" if (withdrawn_overall and not council_vote_action)
+          else "current" if s3 == "complete"
+          else "pending")
+    if mayor_na:
+        s5 = "not_applicable"
+    else:
+        s5 = ("blocked" if (mayor_action_action and blocked_at_mayor)
+              else "complete" if mayor_action_action
+              else "blocked" if (withdrawn_overall and not mayor_action_action)
+              else "current" if s4 == "complete"
+              else "pending")
+
+    return [
+        _step("referred",          "Referred to Committee", "Introduced & assigned",        s1, referred_action),
+        _step("committee_hearing", "Committee Hearing",     "Discussed in committee",        s2, committee_hearing_action),
+        _step("committee_outcome", "Committee Outcome",     "Recommendation or vote result", s3, committee_outcome_action),
+        _step("council_vote",      "City Council Vote",     "Full council approval",         s4, council_vote_action),
+        _step("mayor_action",      "Mayor's Signature",     "Signed, vetoed, or N/A",        s5, mayor_action_action),
+    ]
+
+
 def enrich_matter(matter: dict) -> dict:
     actions = matter.get("actions") or []
+    actions.sort(key=lambda a: (a.get("actionDate") or ""))
+    matter["actions"] = actions
 
     for action in actions:
         if "refer" in (action.get("actionName") or "").lower():
@@ -465,6 +568,8 @@ def enrich_matter(matter: dict) -> dict:
         matter["statusContext"] = _STATUS_CONTEXT["in_committee_stale" if days_old > 180 else "in_committee_active"]
     elif "refer" in display:
         matter["statusContext"] = _STATUS_CONTEXT["referred"]
+    elif re.search(r'recommend', raw_sub) and re.search(r'pass|approv', raw_sub):
+        matter["statusContext"] = _STATUS_CONTEXT["recommended_to_pass"]
     elif re.search(r'pass|adopt|approv', re.sub(r'^\d+-', '', raw_sub or display)):
         matter["statusContext"] = _STATUS_CONTEXT["passed"]
     elif re.search(r'fail|reject|defeat', re.sub(r'^\d+-', '', raw_sub or display)):
@@ -565,6 +670,7 @@ def enrich_matter(matter: dict) -> dict:
     if what_can_you_do:
         matter["whatCanYouDo"] = what_can_you_do
 
+    matter["legislativeTracker"] = _build_legislative_tracker(matter)
     return matter
 
 
@@ -583,7 +689,28 @@ def meeting_summary(meeting_id: str, body: str, date_str: str, items: list) -> s
     non_routine = [i for i in items if not i.get("isRoutine")]
     routine_count = sum(1 for i in items if i.get("isRoutine"))
 
-    if not non_routine and not items:
+    if not items:
+        summary = (
+            "No votes were taken at this meeting. Instead, a subject matter hearing took place. "
+            "Click into this meeting to see the meeting agenda."
+        )
+        try:
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO meeting_summaries (meeting_id, body, meeting_date, summary)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (meeting_id) DO UPDATE
+                         SET summary = EXCLUDED.summary,
+                             body = COALESCE(EXCLUDED.body, meeting_summaries.body),
+                             meeting_date = COALESCE(EXCLUDED.meeting_date, meeting_summaries.meeting_date)""",
+                    (meeting_id, body, date_str, summary)
+                )
+        except Exception:
+            pass
+        return summary
+
+    if not non_routine:
         return ""
 
     nr_titles = "\n".join(
@@ -638,6 +765,28 @@ def fetch_meeting_items(meeting_id: str) -> list:
             item.get("matterType", ""), item.get("matterTitle", "")
         )
     return items
+
+
+def fetch_meeting_files(meeting_id: str) -> list[dict]:
+    """Fetch meeting-level file attachments (not matter attachments)."""
+    try:
+        detail = _elms_get(f"/meeting-agenda/{meeting_id}")
+        return detail.get("files") or []
+    except Exception:
+        return []
+
+
+def get_meeting_document_summaries(meeting_id: str) -> list[dict]:
+    """Return meeting-level file attachments as a plain list (no AI summarization)."""
+    files = fetch_meeting_files(meeting_id)
+    results = []
+    for f in files[:10]:
+        url = f.get("path") or f.get("url") or ""
+        if not url:
+            continue
+        name = f.get("fileName") or f.get("name") or "Meeting document"
+        results.append({"name": name, "url": url})
+    return results
 
 
 def fetch_matter_detail_slim(record_number: str) -> dict:

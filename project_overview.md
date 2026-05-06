@@ -179,7 +179,7 @@ prepopulate_2026.py   One-time script: pre-populates all DB caches for 2026 meet
 - **`attachment_summaries`** — `url_hash (md5) → summary`; PDF summaries at 5th-grade level
 - **`meeting_summaries`** — `meeting_id → summary`; ≤50-word meeting summaries
 - **`matter_detail_cache`** — `record_number → {status, data JSONB}`; full `enrich_matter()` output; 1h TTL for active matters, indefinite for settled; primary source for all matter page loads
-- **`meeting_items`** — `(meeting_id, record_number)` → item metadata (title, type, action, is_routine, order); written by scheduler when fetching agenda content; read by `meeting_matters` route before calling ELMS
+- **`meeting_items`** — `(meeting_id, record_number)` → item metadata (title, type, action, is_routine, order); written by scheduler when fetching agenda content; read by `meeting_matters` route before calling ELMS. Meetings with no items → `hasNoMatters: true` response with `meetingDocuments[]` from meeting `files[]`
 - **`meeting_subscriptions`** — `email + body + confirmed + confirm_token + unsub_token`; meeting email subscribers
 - **`matter_subscriptions`** — `email + record_number + last_status + confirmed + tokens`; per-legislation trackers
 - **`meeting_email_log`** — `(email, meeting_id, email_type)` UNIQUE; per-subscriber deduplication guard
@@ -330,7 +330,7 @@ Endpoints used:
 Key ELMS field notes:
 - `subStatus` — capital S (not `substatus`)
 - `attachments` — direct matter attachments (legislation PDFs, reports); this is what surfaces in "Related Documents"
-- Meeting `files[]` exist but are **not** surfaced in the UI (they belong to the full agenda, not the matter)
+- Meeting `files[]` — meeting-level documents surfaced only for meetings with no agenda items (see below)
 
 ### Search pipeline (`legislation_search`)
 
@@ -353,7 +353,7 @@ The `agreedCalendar` field (`"YES"`/`"NO"`) is available on matters from the ELM
 
 Called on `GET /legislation/matters/<record_number>`.
 
-1. **Meeting details** — for each action, search meetings by `(actionByName, date)`, fetch full meeting record for `location` and `videoLinks`
+1. **Sort actions chronologically** — `matter["actions"]` sorted ascending by `actionDate` (ISO strings sort lexicographically)
 2. **Status context** — sets `matter["statusContext"]` from `_STATUS_CONTEXT` dict based on `status`/`subStatus`:
    - `in_committee_active` / `in_committee_stale` (>180 days) / `held_in_committee` / `referred` / `passed` / `failed` / `withdrawn` / `tabled`
 3. **Action-level context** — referral actions get `action["statusContext"]` = Rule 41 explanation
@@ -362,6 +362,12 @@ Called on `GET /legislation/matters/<record_number>`.
 6. **Committee chair** — fuzzy match `matter.controllingBody` against `_COMMITTEE_CHAIRS` dict; sets `matter["committeeChair"]`
 7. **What can you do?** — `matter["whatCanYouDo"]` list: contact alderperson link + committee chair contact if in committee
 8. **Plain language title** — `matter["plainLanguageTitle"]` via `_plain_language_titles()`
+9. **Legislative tracker** — `matter["legislativeTracker"]` — list of 5 step dicts built by `_build_legislative_tracker()`:
+   - Steps: `referred` → `committee_hearing` → `committee_outcome` → `council_vote` → `mayor_action`
+   - Each step: `{id, label, sublabel, status, date, actionName}`
+   - Status values: `complete` / `current` (pulsing) / `pending` / `blocked` (orange, for tabled/withdrawn/vetoed/failed) / `not_applicable` (resolutions, orders, etc.)
+   - Action name matching: `"Referred"` → step 1; `"Recommended to Pass"` / `"Substituted"` / `"Held in Committee"` etc. → steps 2–3; `"Passed"` / `"Adopted"` / `"Approved"` by City Council → step 4; `"Signed by Mayor"` / `"Vetoed"` → step 5
+   - Displayed in frontend as a horizontal stepper (vertical on mobile ≤600px) above the detailed timeline
 
 ### Static data in `api.py`
 
