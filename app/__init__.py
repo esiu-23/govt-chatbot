@@ -53,6 +53,10 @@ def create_app() -> Flask:
             response.status_code,
         )
         return response
+    
+    @app.route("/")
+    def health():
+        return "ok", 200
 
     app.register_blueprint(pages.bp)
     app.register_blueprint(chat.bp)
