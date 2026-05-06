@@ -5,7 +5,6 @@ from flask import Flask, request
 from flask import redirect, url_for
 
 from .routes import pages, chat, legislation, meetings, subscriptions, illinois_legislation
-from .scheduler import start_scheduler
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -61,8 +60,6 @@ def create_app() -> Flask:
     app.register_blueprint(illinois_legislation.bp)
     app.register_blueprint(meetings.bp)
     app.register_blueprint(subscriptions.bp)
-
-    # start_scheduler(app)
 
     print("BLUEPRINTS:", app.blueprints)
     print("URL MAP:", app.url_map)
