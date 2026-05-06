@@ -898,7 +898,7 @@ def start_scheduler(app) -> None:
         # (e.g., past meetings whose post-poll fired before the app was running).
         scheduler.add_job(
             check_and_send_meeting_emails,
-            trigger=IntervalTrigger(hours=4),
+            trigger=IntervalTrigger(hours=24),
             id="meeting_emails",
             replace_existing=True,
             max_instances=1,
@@ -906,13 +906,13 @@ def start_scheduler(app) -> None:
 
         scheduler.add_job(
             check_and_send_matter_updates,
-            trigger=IntervalTrigger(hours=4),
+            trigger=IntervalTrigger(hours=24),
             id="matter_updates",
             replace_existing=True,
             max_instances=1,
         )
         scheduler.start()
         logger.info("[scheduler] started — sync_meetings at startup + every 24h; "
-                    "meeting_emails every 4h (fallback); matter_updates every 4h")
+                    "meeting_emails every 24h (fallback); matter_updates every 24h")
     except Exception as e:
         logger.error("[scheduler] failed to start: %s", e)
