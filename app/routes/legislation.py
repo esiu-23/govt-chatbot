@@ -1,3 +1,4 @@
+import json
 import logging
 
 from flask import Blueprint, jsonify, request
@@ -5,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from ..data_sources.elms import (
     _elms_get, _is_boilerplate, claude_rerank, get_enriched_matter, plain_language_titles,
 )
+from ..db import _db
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("legislation", __name__)
@@ -12,6 +14,12 @@ bp = Blueprint("legislation", __name__)
 
 @bp.route("/legislation/recent")
 def legislation_recent():
+    try:
+        matters = _recent_from_cache(limit=12)
+        if matters:
+            return jsonify({"matters": matters, "count": len(matters)})
+    except Exception as e:
+        logger.warning("[legislation] recent cache failed, falling back to ELMS: %s", e)
     try:
         raw = _elms_get("/search", {"search": "", "top": 50, "orderby": "introductionDate desc"})
         matters = raw.get("value", raw.get("data", []))
@@ -34,6 +42,42 @@ def legislation_recent():
     except Exception as e:
         logger.error("[legislation] recent error: %s", e)
         return jsonify({"matters": [], "count": 0})
+
+
+def _recent_from_cache(limit: int = 12) -> list[dict]:
+    """Read recently introduced matters from matter_detail_cache ordered by introductionDate."""
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT data FROM matter_detail_cache
+                   WHERE cached_at > NOW() - INTERVAL '60 days'
+                   ORDER BY (data->>'introductionDate') DESC NULLS LAST
+                   LIMIT %s""",
+                (limit * 3,),  # over-fetch so boilerplate filtering doesn't leave us short
+            )
+            rows = cur.fetchall()
+            matters = []
+            for (data,) in rows:
+                d = data if isinstance(data, dict) else json.loads(data)
+                if _is_boilerplate({"title": d.get("title", "")}):
+                    continue
+                matters.append({
+                    "recordNumber":      d.get("recordNumber"),
+                    "title":             d.get("title"),
+                    "plainLanguageTitle": d.get("plainLanguageTitle"),
+                    "status":            d.get("status"),
+                    "substatus":         d.get("subStatus") or d.get("substatus"),
+                    "type":              d.get("type"),
+                    "introductionDate":  d.get("introductionDate"),
+                    "controllingBody":   d.get("controllingBody"),
+                })
+                if len(matters) >= limit:
+                    break
+            return matters
+    except Exception as e:
+        logger.warning("[legislation] recent_from_cache: %s", e)
+        return []
 
 
 @bp.route("/legislation/search")

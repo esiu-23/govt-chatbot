@@ -158,23 +158,44 @@ CREATE TABLE IF NOT EXISTS meeting_email_log (
 -- Tracks each known meeting's state so the scheduler can diff across polls
 -- instead of re-examining everything from scratch each run.
 CREATE TABLE IF NOT EXISTS known_meetings (
-    meeting_id        TEXT PRIMARY KEY,
-    body              TEXT NOT NULL,
-    meeting_date      TEXT NOT NULL,        -- YYYY-MM-DD
-    elms_status       TEXT,                 -- raw status from ELMS ("Scheduled", "Published", "Completed", etc.)
-    nonroutine_count  INTEGER DEFAULT 0,    -- non-routine item count at last check; 0 = agenda not yet seen
-    routine_count     INTEGER DEFAULT 0,    -- routine item count (claims, permits, etc.)
-    location          TEXT,                 -- meeting room/address from ELMS
-    agenda_sent_at    TIMESTAMPTZ,          -- non-NULL once agenda emails have been dispatched
-    summary_sent_at   TIMESTAMPTZ,          -- non-NULL once summary emails have been dispatched
-    first_seen_at     TIMESTAMPTZ DEFAULT NOW(),
-    last_checked_at   TIMESTAMPTZ DEFAULT NOW()
+    meeting_id          TEXT PRIMARY KEY,
+    body                TEXT NOT NULL,
+    meeting_date        TEXT NOT NULL,          -- YYYY-MM-DD (date only, for window queries)
+    meeting_datetime    TIMESTAMPTZ,            -- full scheduled datetime from ELMS; drives DateTrigger polls
+    elms_status         TEXT,                   -- raw status from ELMS ("Scheduled & Published", etc.)
+    nonroutine_count    INTEGER DEFAULT 0,      -- non-routine item count; 0 = agenda not yet seen
+    routine_count       INTEGER DEFAULT 0,
+    location            TEXT,
+    agenda_sent_at      TIMESTAMPTZ,            -- non-NULL once agenda email dispatched
+    summary_sent_at     TIMESTAMPTZ,            -- non-NULL once post-meeting summary email dispatched
+    new_meeting_sent_at TIMESTAMPTZ,            -- non-NULL once "new meeting scheduled" alert sent
+    first_seen_at       TIMESTAMPTZ DEFAULT NOW(),
+    last_checked_at     TIMESTAMPTZ DEFAULT NOW()
 );
 -- Migration for existing deployments:
 -- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS routine_count INTEGER DEFAULT 0;
 -- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS location TEXT;
+-- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS meeting_datetime TIMESTAMPTZ;
+-- ALTER TABLE known_meetings ADD COLUMN IF NOT EXISTS new_meeting_sent_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS known_meetings_date_idx ON known_meetings(meeting_date);
 CREATE INDEX IF NOT EXISTS known_meetings_body_idx ON known_meetings(body);
+
+-- Agenda item list cache — populated by scheduler when it fetches meeting items.
+-- Lets meeting_matters read the full item list without calling ELMS.
+CREATE TABLE IF NOT EXISTS meeting_items (
+    meeting_id    TEXT NOT NULL,
+    record_number TEXT NOT NULL,
+    matter_id     TEXT,
+    matter_title  TEXT,
+    matter_type   TEXT,
+    action_name   TEXT,
+    is_routine    BOOLEAN DEFAULT FALSE,
+    item_order    INTEGER DEFAULT 0,
+    cached_at     TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (meeting_id, record_number)
+);
+CREATE INDEX IF NOT EXISTS meeting_items_meeting_id_idx ON meeting_items(meeting_id);
+-- Migration for existing deployments: (new table — run the CREATE above)
 
 -- ---------------------------------------------------------------------------
 -- Illinois state additions

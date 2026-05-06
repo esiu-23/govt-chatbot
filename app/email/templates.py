@@ -183,6 +183,71 @@ def render_agenda_email(
     return subject, _shell(body, body, f"Meeting Agenda — {fmt_date}", body_html, unsub_url)
 
 
+def render_new_meeting_email(
+    body: str,
+    date_str: str,
+    meeting_time: str,
+    location: str,
+    items: list[dict],
+    routine_count: int,
+    public_comment_deadline: str,
+    unsub_url: str,
+) -> tuple[str, str]:
+    """Return (subject, html) for a 'new meeting scheduled' alert.
+
+    Sent the moment sync_meeting_schedule() discovers a meeting not previously
+    in known_meetings. Includes the public comment deadline from ELMS and
+    whatever agenda items are already published (may be empty for newly listed
+    meetings whose agendas haven't been posted yet).
+    """
+    fmt_date = _fmt_date(date_str)
+    subject  = f"New {body} Meeting — {fmt_date}"
+
+    when_line = fmt_date
+    if meeting_time:
+        when_line += f", {meeting_time}"
+    loc_html = f'<p class="meta-row"><strong>Where:</strong> {_h(location)}</p>' if location else ""
+
+    deadline_html = ""
+    if public_comment_deadline:
+        deadline_html = f"""
+<div class="overview" style="margin-top:16px">
+  <strong>Public comment deadline:</strong> {_h(public_comment_deadline)}<br>
+  <a href="https://chicityclerkelms.chicago.gov/Meetings/" style="color:#1a6aad;">
+    Submit a comment on ELMS →</a>
+</div>"""
+
+    if items:
+        display  = items[:8]
+        overflow = len(items) - len(display)
+        total    = len(items) + routine_count
+        count_note = f"{total} item{'s' if total != 1 else ''} on the agenda"
+        if routine_count:
+            count_note += f" ({len(items)} non-routine, {routine_count} routine)"
+        cards = "".join(_matter_card_html(i, show_status=False) for i in display)
+        more  = (f'<div class="more-link"><a href="{APP_URL}">+ {overflow} more — view full agenda</a></div>'
+                 if overflow > 0 else "")
+        agenda_html = f"""
+<p class="section-label" style="margin-top:24px">What's on the agenda</p>
+<p class="count-note">{_h(count_note)}</p>
+{cards}{more}"""
+    else:
+        agenda_html = (
+            '<p class="count-note" style="color:#888;font-style:italic">'
+            "The full agenda has not been published yet. "
+            "You'll receive another email once it is.</p>"
+        )
+
+    body_html = f"""
+<p class="section-label">Meeting details</p>
+<p class="meta-row"><strong>When:</strong> {_h(when_line)}</p>
+{loc_html}
+{deadline_html}
+{agenda_html}"""
+
+    return subject, _shell(body, "New Meeting Scheduled", f"{body} — {fmt_date}", body_html, unsub_url)
+
+
 def render_matter_update_email(
     record_number: str,
     plain_title: str,

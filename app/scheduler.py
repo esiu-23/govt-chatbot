@@ -1,27 +1,32 @@
 """
 APScheduler jobs for meeting email notifications and matter status polling.
 
-Meeting detection strategy
-──────────────────────────
-Rather than re-examining 300 meetings from scratch every 2 hours, we maintain a
-`known_meetings` table that stores each meeting's last-seen state (ELMS status,
-non-routine item count, whether emails have been sent).  Each poll only fetches
-a narrow time window (past 7 days + next 30 days), diffs each meeting against
-its stored state, and acts only on genuine transitions:
+Architecture
+────────────
+Two distinct jobs with distinct responsibilities:
 
-  • elms_status changes to a "published" keyword  → agenda email
-  • nonroutine_count goes from 0 → N              → agenda email (fallback if
-                                                    ELMS status isn't granular)
-  • meeting_date crosses into the past             → summary email
+1. sync_meeting_schedule()  — runs once a day at startup + every 24 h.
+   Fetches ONLY the lightweight meeting list from ELMS (no agenda content).
+   For each NEW meeting discovered:
+     • Upserts into known_meetings with meeting_datetime
+     • Schedules two one-shot DateTrigger polls: at meeting start time and
+       3 h after (expected end)
+     • If subscribers exist, fetches the full meeting record for
+       publicCommentDeadline and sends a "new meeting scheduled" alert email
+   For existing meetings: updates meeting_datetime if missing and
+   re-registers DateTrigger polls (so they survive app restarts).
 
-After each run we inspect the nearest upcoming meeting and reschedule the job
-at an adaptive interval so we check more often as a meeting approaches:
+2. check_and_send_meeting_emails()  — safety-net, runs every 4 h AND is
+   called by the DateTrigger polls at meeting start/end times.
+   Queries known_meetings (never ELMS) for meetings needing agenda or
+   summary emails, fetches+caches content from ELMS only for those meetings,
+   and populates meeting_items + matter_detail_cache so page loads are DB-only.
 
-  Next meeting ≥ 14 days out  →  6-hour poll
-  Next meeting  7-14 days out →  2-hour poll
-  Next meeting  2-7 days out  →  1-hour poll
-  Next meeting  < 2 days out  →  20-minute poll
-  No upcoming meetings        →  6-hour poll (idle)
+Email types
+───────────
+  new_meeting  sent by sync_meeting_schedule on first discovery
+  agenda       sent when a meeting with non-routine items is upcoming
+  summary      sent after the meeting ends (≥3 h past start time)
 """
 
 import logging
@@ -41,7 +46,13 @@ from .data_sources.elms import (
 )
 from .db import _db
 from .email.sender import send_email
-from .email.templates import BASE_URL, render_agenda_email, render_matter_update_email, render_summary_email
+from .email.templates import (
+    BASE_URL,
+    render_agenda_email,
+    render_matter_update_email,
+    render_new_meeting_email,
+    render_summary_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,118 +67,151 @@ _PUBLISHED_STATUSES = {"published", "agenda published", "final agenda", "schedul
 # Public entry points (called by APScheduler)
 # ---------------------------------------------------------------------------
 
-def check_and_send_meeting_emails() -> None:
+def sync_meeting_schedule() -> None:
+    """Daily lightweight sync: discover new meetings and schedule targeted content pulls.
+
+    Fetches only the meeting list from ELMS (no agenda content).  For each NEW
+    meeting not already in known_meetings:
+      • Stores it with meeting_datetime
+      • Schedules one-shot DateTrigger polls at start time and 3 h after
+      • Sends a "new meeting scheduled" alert with the public comment deadline
+
+    For ALL upcoming meetings (new and existing): re-registers DateTrigger polls
+    so they survive app restarts.
     """
-    Diff-based meeting poll.  Fetches only a rolling 37-day window, compares
-    each meeting against `known_meetings`, and sends emails only on genuine
-    state transitions.
-    """
-    logger.info("[scheduler] meeting email check starting")
-    now   = datetime.now(timezone.utc)
-    today = now.date()
-    window_start = (today - timedelta(days=7)).isoformat()
-    window_end   = (today + timedelta(days=30)).isoformat()
+    logger.info("[scheduler] daily schedule sync starting")
+    now       = datetime.now(timezone.utc)
+    today_str = now.date().isoformat()
+    end_str   = (now.date() + timedelta(days=90)).isoformat()
 
     try:
-        # Fetch only the window we care about.  ELMS supports simple date
-        # string comparison via the search/orderby params; if the API gains
-        # proper date filtering we can add it here.
-        raw = _elms_get("/meeting-agenda", {"top": 300, "orderby": "date desc"})
+        raw = _elms_get("/meeting-agenda", {"top": 300, "orderby": "date asc"})
         meetings = raw.get("value", raw.get("data", []))
     except Exception as e:
-        logger.error("[scheduler] ELMS fetch failed: %s", e)
+        logger.error("[scheduler] sync ELMS fetch failed: %s", e)
         return
 
-    # Narrow to our window client-side (ELMS doesn't expose a date filter param).
-    in_window = [
-        m for m in meetings
-        if window_start <= (m.get("date") or "")[:10] <= window_end
-        and (m.get("meetingId") or m.get("id"))
-        and m.get("body")
-    ]
-
-    # Deduplicate by (date, body) — ELMS sometimes returns the same meeting twice.
-    seen_keys: set[tuple] = set()
-    unique: list[dict] = []
-    for m in in_window:
-        key = ((m.get("date") or "")[:10], m.get("body", ""))
-        if key not in seen_keys:
-            seen_keys.add(key)
-            unique.append(m)
-
-    today_str = today.isoformat()
-    for m in unique:
-        meeting_id        = m.get("meetingId") or m.get("id") or ""
-        body              = m.get("body") or ""
-        meeting_full_date = m.get("date") or ""
-        date_str          = meeting_full_date[:10]
-        elms_status       = (m.get("status") or "").strip()
-
-        # Compare against the meeting's full scheduled datetime so a meeting
-        # at 3 pm is not treated as past at 10 am on the same day.
-        if meeting_full_date:
-            try:
-                meeting_dt = datetime.fromisoformat(meeting_full_date.replace("Z", "+00:00"))
-                is_past = meeting_dt < now
-            except Exception:
-                is_past = date_str <= today_str
-        else:
-            is_past = date_str <= today_str
-
-        if not _has_subscribers(body):
+    past_30_str = (now.date() - timedelta(days=30)).isoformat()
+    upcoming: list[dict] = []
+    seen_ids: set[str] = set()
+    for m in meetings:
+        date_str = (m.get("date") or "")[:10]
+        mid      = m.get("meetingId") or m.get("id")
+        if date_str < past_30_str or date_str > end_str or not mid or not m.get("body"):
             continue
+        if mid not in seen_ids:
+            seen_ids.add(mid)
+            upcoming.append(m)
 
-        # Load or create the stored state row.
-        state = _load_meeting_state(meeting_id)
-        if state is None:
-            state = _upsert_meeting_state(meeting_id, body, date_str, elms_status, 0)
+    known_ids = _get_known_meeting_ids()
+    scheduler  = _get_scheduler()
+    new_count  = 0
 
-        status_changed = elms_status != (state.get("elms_status") or "")
+    for m in upcoming:
+        meeting_id  = m.get("meetingId") or m.get("id") or ""
+        body        = m.get("body") or ""
+        full_date   = m.get("date") or ""
+        date_str    = full_date[:10]
+        elms_status = (m.get("status") or "").strip()
 
-        location = m.get("location") or ""
+        meeting_dt: datetime | None = None
+        if full_date:
+            try:
+                meeting_dt = datetime.fromisoformat(full_date.replace("Z", "+00:00"))
+            except Exception:
+                pass
 
-        # ── Agenda detection ──────────────────────────────────────────────
-        if not state.get("agenda_sent_at") and not is_past:
-            agenda_published = _detect_agenda_published(
-                meeting_id, elms_status, state, status_changed
-            )
-            if agenda_published:
+        is_new = meeting_id not in known_ids
+
+        # Upsert schedule metadata only — no content fetch here
+        _upsert_meeting_state(meeting_id, body, date_str, elms_status, 0, meeting_datetime=meeting_dt)
+
+        # Register DateTrigger polls for every upcoming meeting so they survive restarts
+        if scheduler and meeting_dt and meeting_dt > now:
+            _schedule_targeted_polls(scheduler, meeting_id, meeting_dt)
+
+        if is_new:
+            new_count += 1
+            if _has_subscribers(body):
+                try:
+                    full_record = _elms_get(f"/meeting-agenda/{meeting_id}")
+                except Exception:
+                    full_record = {}
                 items = _safe_fetch_items(meeting_id)
-                non_routine = [i for i in items if not i.get("isRoutine", False)]
-                if non_routine:
-                    _prewarm_matter_cache(non_routine)
-                    enriched      = _enrich_items_for_email(items)
-                    routine_count = sum(1 for i in items if i.get("isRoutine", False))
-                    _dispatch_meeting_emails(
-                        "agenda", meeting_id, body, date_str,
-                        enriched, routine_count,
-                        location=location,
-                        summary_text="",
-                    )
-                    _mark_agenda_sent(meeting_id, body, date_str, elms_status,
-                                      len(non_routine), routine_count, location)
-                    logger.info("[scheduler] agenda email sent for %s %s", body, date_str)
+                _send_new_meeting_alert(meeting_id, body, date_str, meeting_dt, full_record, items)
 
-        # ── Summary detection ─────────────────────────────────────────────
-        if not state.get("summary_sent_at") and is_past:
-            items            = _safe_fetch_items(meeting_id)
-            non_routine      = [i for i in items if not i.get("isRoutine", False)]
-            _prewarm_matter_cache(non_routine)
-            summary_text     = meeting_summary(meeting_id, body, date_str, items)
-            enriched         = _enrich_items_for_email(items)
-            routine_count    = sum(1 for i in items if i.get("isRoutine", False))
-            nonroutine_count = len(non_routine)
-            _dispatch_meeting_emails(
-                "summary", meeting_id, body, date_str,
-                enriched, routine_count,
-                location="",
-                summary_text=summary_text,
+    logger.info("[scheduler] sync complete — %d upcoming meetings, %d new", len(upcoming), new_count)
+
+
+def check_and_send_meeting_emails() -> None:
+    """Process meetings in known_meetings that need agenda or summary emails.
+
+    Called by DateTrigger jobs at meeting start time and 3 h after, and by the
+    4 h safety-net interval job.  Never fetches the ELMS schedule list — that
+    is sync_meeting_schedule()'s job.  Fetches ELMS content only for the
+    specific meetings that need it, and caches results so page loads are DB-only.
+    """
+    logger.info("[scheduler] check_and_send starting")
+    now       = datetime.now(timezone.utc)
+    today_str = now.date().isoformat()
+    yesterday = (now.date() - timedelta(days=1)).isoformat()
+
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT meeting_id, body, meeting_date, meeting_datetime, elms_status, location
+                   FROM known_meetings
+                   WHERE (
+                     (agenda_sent_at  IS NULL AND meeting_date >= %s)
+                     OR
+                     (summary_sent_at IS NULL AND meeting_date BETWEEN %s AND %s)
+                   )
+                   AND EXISTS (
+                     SELECT 1 FROM meeting_subscriptions ms
+                     WHERE ms.body = known_meetings.body AND ms.confirmed = TRUE
+                   )""",
+                (today_str, yesterday, today_str),
             )
-            _mark_summary_sent(meeting_id, body, date_str, elms_status,
-                               nonroutine_count, routine_count, location)
-            logger.info("[scheduler] summary email sent for %s %s", body, date_str)
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.error("[scheduler] check_and_send DB query: %s", e)
+        return
 
-        # Always update last_checked_at and status snapshot.
+    for meeting_id, body, meeting_date, meeting_dt, elms_status, location in rows:
+        is_past = (meeting_dt < now) if meeting_dt else (meeting_date <= today_str)
+        state   = _load_meeting_state(meeting_id) or {}
+        elms_status = elms_status or ""
+        location    = location or ""
+
+        # ── Agenda ───────────────────────────────────────────────────────────
+        if not state.get("agenda_sent_at") and not is_past:
+            items       = _safe_fetch_items(meeting_id)
+            non_routine = [i for i in items if not i.get("isRoutine")]
+            if non_routine:
+                _prewarm_matter_cache(non_routine)
+                enriched      = _enrich_items_for_email(items)
+                routine_count = sum(1 for i in items if i.get("isRoutine"))
+                _dispatch_meeting_emails("agenda", meeting_id, body, meeting_date,
+                                         enriched, routine_count, location, "")
+                _mark_agenda_sent(meeting_id, body, meeting_date, elms_status,
+                                  len(non_routine), routine_count, location)
+                logger.info("[scheduler] agenda email sent: %s %s", body, meeting_date)
+
+        # ── Summary ──────────────────────────────────────────────────────────
+        if not state.get("summary_sent_at") and is_past:
+            items         = _safe_fetch_items(meeting_id)
+            non_routine   = [i for i in items if not i.get("isRoutine")]
+            _prewarm_matter_cache(non_routine)
+            summary_text  = meeting_summary(meeting_id, body, meeting_date, items)
+            enriched      = _enrich_items_for_email(items)
+            routine_count = sum(1 for i in items if i.get("isRoutine"))
+            _dispatch_meeting_emails("summary", meeting_id, body, meeting_date,
+                                     enriched, routine_count, "", summary_text)
+            _mark_summary_sent(meeting_id, body, meeting_date, elms_status,
+                               len(non_routine), routine_count, location)
+            logger.info("[scheduler] summary email sent: %s %s", body, meeting_date)
+
         _touch_meeting_state(meeting_id, elms_status)
 
     _reschedule_meeting_job()
@@ -218,40 +262,97 @@ def check_and_send_matter_updates() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Agenda-published detection logic
+# New-meeting alert helpers
 # ---------------------------------------------------------------------------
 
-def _detect_agenda_published(
+def _send_new_meeting_alert(
     meeting_id: str,
-    elms_status: str,
-    state: dict,
-    status_changed: bool,
-) -> bool:
+    body: str,
+    date_str: str,
+    meeting_dt: "datetime | None",
+    full_record: dict,
+    items: list[dict],
+) -> None:
+    """Dispatch a 'new meeting scheduled' alert to confirmed subscribers."""
+    location     = full_record.get("location") or ""
+    deadline_iso = full_record.get("publicCommentDeadline") or ""
+    deadline_str = _fmt_deadline(deadline_iso)
+
+    meeting_time_str = ""
+    if meeting_dt:
+        try:
+            from zoneinfo import ZoneInfo
+            dt_ct = meeting_dt.astimezone(ZoneInfo("America/Chicago"))
+            meeting_time_str = dt_ct.strftime("%-I:%M %p CT")
+        except Exception:
+            pass
+
+    non_routine   = [i for i in items if not i.get("isRoutine")]
+    routine_count = sum(1 for i in items if i.get("isRoutine"))
+    if non_routine:
+        pt = plain_language_titles([
+            {"recordNumber": i.get("recordNumber"), "title": i.get("matterTitle")}
+            for i in non_routine
+        ])
+        for item in non_routine:
+            item["plainLanguageTitle"] = pt.get(item.get("recordNumber")) or item.get("matterTitle", "")
+
+    for email_addr in _get_subscribers(body):
+        if _already_sent(email_addr, meeting_id, "new_meeting"):
+            continue
+        unsub_url = _unsub_url_for(email_addr)
+        subj, html_body = render_new_meeting_email(
+            body, date_str, meeting_time_str, location,
+            non_routine, routine_count, deadline_str, unsub_url,
+        )
+        if send_email(email_addr, subj, html_body):
+            _log_sent(email_addr, meeting_id, "new_meeting")
+    logger.info("[scheduler] new meeting alert sent: %s %s", body, date_str)
+
+
+def _fmt_deadline(deadline_iso: str) -> str:
+    """Format ELMS publicCommentDeadline ISO string to a Chicago-local display string."""
+    if not deadline_iso:
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+        dt = datetime.fromisoformat(deadline_iso.replace("Z", "+00:00"))
+        return dt.astimezone(ZoneInfo("America/Chicago")).strftime("%-m/%-d/%Y at %-I:%M %p CT")
+    except Exception:
+        return deadline_iso[:16].replace("T", " ") + " UTC"
+
+
+# ---------------------------------------------------------------------------
+# DateTrigger poll scheduling
+# ---------------------------------------------------------------------------
+
+def _schedule_targeted_polls(scheduler, meeting_id: str, meeting_dt: datetime) -> None:
+    """Register one-shot content pulls at meeting start time and 3 h after.
+
+    Using replace_existing=True means re-running on restart safely overwrites
+    any previously registered jobs for the same meeting.
     """
-    Return True if evidence suggests the agenda was just published.
+    from apscheduler.triggers.date import DateTrigger
+    now = datetime.now(timezone.utc)
 
-    Two signals, in priority order:
-    1. ELMS status transitioned to a known "published" keyword.
-    2. Non-routine item count went from 0 → positive (agenda populated).
+    if meeting_dt > now:
+        scheduler.add_job(
+            check_and_send_meeting_emails,
+            trigger=DateTrigger(run_date=meeting_dt),
+            id=f"poll_start_{meeting_id}",
+            replace_existing=True,
+            max_instances=1,
+        )
 
-    We only act when there is a *transition* — not just current state — to
-    avoid re-sending on every poll after an agenda is already known.
-    """
-    # Signal 1: explicit ELMS status transition
-    if status_changed and elms_status.lower() in _PUBLISHED_STATUSES:
-        logger.debug("[scheduler] %s: ELMS status → '%s' (published)", meeting_id, elms_status)
-        return True
-
-    # Signal 2: item count transition 0 → N
-    prev_count = state.get("nonroutine_count") or 0
-    if prev_count == 0:
-        items = _safe_fetch_items(meeting_id)
-        current_count = sum(1 for i in items if not i.get("isRoutine", False))
-        if current_count > 0:
-            logger.debug("[scheduler] %s: item count 0 → %d (agenda populated)", meeting_id, current_count)
-            return True
-
-    return False
+    post_dt = meeting_dt + timedelta(hours=3)
+    if post_dt > now:
+        scheduler.add_job(
+            check_and_send_meeting_emails,
+            trigger=DateTrigger(run_date=post_dt),
+            id=f"poll_end_{meeting_id}",
+            replace_existing=True,
+            max_instances=1,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +382,13 @@ def _prewarm_matter_cache(non_routine_items: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 def _enrich_items_for_email(items: list[dict]) -> list[dict]:
+    """Enrich non-routine items for email rendering.
+
+    Reads matter fields from matter_detail_cache (populated by _prewarm_matter_cache)
+    so this never hits ELMS — every matter was already fetched and cached before
+    this function is called.
+    """
+    import json as _json
     non_routine = [i for i in items if not i.get("isRoutine", False)]
     pt = plain_language_titles(non_routine)
     for item in non_routine:
@@ -288,13 +396,26 @@ def _enrich_items_for_email(items: list[dict]) -> list[dict]:
         if not rn:
             continue
         item["plainLanguageTitle"] = pt.get(rn) or item.get("matterTitle", "")
+        # Read from matter_detail_cache first (pre-warmed); fall back to slim ELMS call
         try:
-            slim = fetch_matter_detail_slim(rn)
-            item.update({
-                "status":         slim.get("status"),
-                "controllingBody": slim.get("controllingBody"),
-                "introductionDate": slim.get("introductionDate"),
-            })
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT data FROM matter_detail_cache WHERE record_number = %s", (rn,))
+                row = cur.fetchone()
+            if row:
+                d = row[0] if isinstance(row[0], dict) else _json.loads(row[0])
+                item.update({
+                    "status":          d.get("status"),
+                    "controllingBody": d.get("controllingBody"),
+                    "introductionDate": d.get("introductionDate"),
+                })
+            else:
+                slim = fetch_matter_detail_slim(rn)
+                item.update({
+                    "status":          slim.get("status"),
+                    "controllingBody": slim.get("controllingBody"),
+                    "introductionDate": slim.get("introductionDate"),
+                })
         except Exception:
             pass
         _load_attachment_summary(item)
@@ -340,10 +461,42 @@ def _load_attachment_summary(item: dict) -> None:
 
 def _safe_fetch_items(meeting_id: str) -> list[dict]:
     try:
-        return fetch_meeting_items(meeting_id)
+        items = fetch_meeting_items(meeting_id)
+        _cache_meeting_items(meeting_id, items)
+        return items
     except Exception as e:
         logger.warning("[scheduler] fetch_meeting_items %s: %s", meeting_id, e)
         return []
+
+
+def _cache_meeting_items(meeting_id: str, items: list[dict]) -> None:
+    if not items:
+        return
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            for idx, item in enumerate(items):
+                rn = item.get("recordNumber")
+                if not rn:
+                    continue
+                cur.execute(
+                    """INSERT INTO meeting_items
+                           (meeting_id, record_number, matter_id, matter_title,
+                            matter_type, action_name, is_routine, item_order)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (meeting_id, record_number) DO UPDATE
+                         SET matter_title = EXCLUDED.matter_title,
+                             matter_type  = EXCLUDED.matter_type,
+                             action_name  = EXCLUDED.action_name,
+                             is_routine   = EXCLUDED.is_routine,
+                             item_order   = EXCLUDED.item_order,
+                             cached_at    = NOW()""",
+                    (meeting_id, rn, item.get("matterId"), item.get("matterTitle"),
+                     item.get("matterType"), item.get("actionName"),
+                     bool(item.get("isRoutine", False)), idx),
+                )
+    except Exception as e:
+        logger.warning("[scheduler] cache_meeting_items %s: %s", meeting_id, e)
 
 
 def _dispatch_meeting_emails(
@@ -500,19 +653,35 @@ def _load_meeting_state(meeting_id: str) -> dict | None:
     return None
 
 
+def _get_known_meeting_ids() -> set[str]:
+    """Return the set of all meeting_ids currently stored in known_meetings."""
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT meeting_id FROM known_meetings")
+            return {row[0] for row in cur.fetchall()}
+    except Exception:
+        return set()
+
+
 def _upsert_meeting_state(
     meeting_id: str, body: str, meeting_date: str, elms_status: str, nonroutine_count: int,
-    routine_count: int = 0, location: str = "",
+    routine_count: int = 0, location: str = "", meeting_datetime: "datetime | None" = None,
 ) -> dict:
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
                 """INSERT INTO known_meetings
-                       (meeting_id, body, meeting_date, elms_status, nonroutine_count, routine_count, location)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (meeting_id) DO NOTHING""",
-                (meeting_id, body, meeting_date, elms_status, nonroutine_count, routine_count, location),
+                       (meeting_id, body, meeting_date, meeting_datetime,
+                        elms_status, nonroutine_count, routine_count, location)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (meeting_id) DO UPDATE
+                     SET meeting_datetime = COALESCE(EXCLUDED.meeting_datetime, known_meetings.meeting_datetime),
+                         elms_status      = EXCLUDED.elms_status,
+                         last_checked_at  = NOW()""",
+                (meeting_id, body, meeting_date, meeting_datetime,
+                 elms_status, nonroutine_count, routine_count, location),
             )
     except Exception as e:
         logger.warning("[scheduler] upsert_meeting_state: %s", e)
@@ -714,15 +883,27 @@ def start_scheduler(app) -> None:
         scheduler = BackgroundScheduler(daemon=True)
         _scheduler_ref = scheduler
 
-        # Start meeting polls at 2-hour cadence; first run will self-adjust via
-        # _reschedule_meeting_job() based on the actual upcoming meeting calendar.
+        # Daily schedule sync — runs immediately at startup so DateTrigger polls
+        # for all upcoming meetings are re-registered after restarts.
+        scheduler.add_job(
+            sync_meeting_schedule,
+            trigger=IntervalTrigger(hours=24),
+            id="sync_meetings",
+            replace_existing=True,
+            max_instances=1,
+            next_run_time=datetime.now(timezone.utc),
+        )
+
+        # Safety-net fallback: catches anything the DateTrigger polls miss
+        # (e.g., past meetings whose post-poll fired before the app was running).
         scheduler.add_job(
             check_and_send_meeting_emails,
-            trigger=IntervalTrigger(hours=2),
+            trigger=IntervalTrigger(hours=4),
             id="meeting_emails",
             replace_existing=True,
             max_instances=1,
         )
+
         scheduler.add_job(
             check_and_send_matter_updates,
             trigger=IntervalTrigger(hours=4),
@@ -731,6 +912,7 @@ def start_scheduler(app) -> None:
             max_instances=1,
         )
         scheduler.start()
-        logger.info("[scheduler] started — meeting_emails every 2h (adaptive), matter_updates every 4h")
+        logger.info("[scheduler] started — sync_meetings at startup + every 24h; "
+                    "meeting_emails every 4h (fallback); matter_updates every 4h")
     except Exception as e:
         logger.error("[scheduler] failed to start: %s", e)

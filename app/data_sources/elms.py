@@ -333,10 +333,6 @@ def claude_rerank(query: str, matters: list) -> list:
         return matters
 
 
-_CACHE_TTL_ACTIVE  = 4 * 3600    # 4 hours
-_CACHE_TTL_SETTLED = 7 * 86400   # 7 days
-_SETTLED_STATUSES  = {"passed", "failed", "withdrawn", "tabled", "vetoed"}
-
 _next_meeting_cache: dict[str, tuple[float, dict | None]] = {}
 _NEXT_MEETING_CACHE_TTL = 30 * 60  # 30 minutes
 
@@ -384,24 +380,25 @@ def _next_meeting_for_body(body: str) -> dict | None:
 
 
 def get_enriched_matter(record_number: str) -> dict:
-    """Return enriched matter data, reading from matter_detail_cache before hitting ELMS."""
-    from datetime import timedelta
+    """Return enriched matter data, reading from matter_detail_cache before hitting ELMS.
+
+    User-facing reads always serve whatever is in the cache — no TTL check.
+    The scheduler owns freshness: it re-warms matter_detail_cache whenever it
+    processes a meeting, so the cache is only stale between scheduler runs (hours),
+    not between user loads.  A cache miss only fires for matters the scheduler
+    has never seen.
+    """
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT cached_at, status, data FROM matter_detail_cache WHERE record_number = %s",
+                "SELECT data FROM matter_detail_cache WHERE record_number = %s",
                 (record_number,),
             )
             row = cur.fetchone()
             if row:
-                cached_at, cached_status, data = row
-                status_lower = (cached_status or "").lower()
-                settled = any(s in status_lower for s in _SETTLED_STATUSES)
-                ttl = _CACHE_TTL_SETTLED if settled else _CACHE_TTL_ACTIVE
-                age = (datetime.now(timezone.utc) - cached_at.replace(tzinfo=timezone.utc)).total_seconds()
-                if age < ttl:
-                    return data if isinstance(data, dict) else json.loads(data)
+                data = row[0]
+                return data if isinstance(data, dict) else json.loads(data)
     except Exception as e:
         logger.warning("[elms] matter_detail_cache read error: %s", e)
 

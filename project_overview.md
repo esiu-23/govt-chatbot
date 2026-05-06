@@ -4,7 +4,7 @@ A civic web app for Chicago residents, served from a single Flask process at `th
 
 **Feature 1 — City & State Services Chat:** RAG chatbot answering plain-English questions about Chicago city *and* Illinois state services. Draws from chicago.gov, cps.edu, chicagoparkdistrict.com, and Illinois state sites (illinois.gov, ides.illinois.gov, dhs.state.il.us). Live queries to both the Chicago Open Data Portal and Illinois Open Data Portal (data.illinois.gov) for quantitative questions. Chat proactively identifies whether a service is city-run, state-run, or an independent authority.
 
-**Feature 2 — Chicago Legislation Search:** Plain-language search and browse of Chicago City Council legislation, powered by the ELMS public API (`api.chicityclerkelms.chicago.gov`), with Claude reranking, matter enrichment, and status context.
+**Feature 2 — Chicago Legislation Search:** Plain-language search and browse of Chicago City Council legislation, powered by the ELMS public API (`api.chicityclerkelms.chicago.gov`), with Claude reranking, matter enrichment, status context, and "Submit public comment" action (with ELMS deadline) for non-final matters.
 
 **Feature 3 — Illinois Legislation Search:** Plain-language search and browse of Illinois General Assembly bills, powered by the Legiscan API (`api.legiscan.com`), with Claude reranking, bill enrichment, status context, and sponsor information.
 
@@ -107,7 +107,22 @@ app/
     illinois_legislation.py /illinois/legislation/* (IL General Assembly via Legiscan)
     meetings.py        /meetings/* — DB-first: reads meeting_summaries + known_meetings before calling ELMS
     subscriptions.py   /subscribe/*, /unsubscribe/<token>
-  scheduler.py         APScheduler jobs: diff-based meeting emails (adaptive cadence), matter status polling (4h)
+  scheduler.py         Two APScheduler jobs:
+                       • sync_meeting_schedule() — daily; fetches lightweight meeting list from ELMS
+                         (past 30 days + next 90 days), upserts known_meetings, registers DateTrigger
+                         one-shot polls at meeting start/end, sends "new meeting" alerts to subscribers
+                       • check_and_send_meeting_emails() — called by DateTrigger + 4h safety net;
+                         queries known_meetings (not ELMS), fetches agenda content for meetings that need it,
+                         writes meeting_items + matter_detail_cache + meeting_summaries, sends emails
+                       • check_and_send_matter_updates() — every 4h; polls matter status for confirmed
+                         matter_subscriptions, sends status-change emails
+prepopulate_2026.py   One-time script: pre-populates all DB caches for 2026 meetings + matters.
+                       Phase 1 — fetches every past 2026 meeting, upserts known_meetings, caches
+                       meeting_items, generates meeting_summaries, and enriches all non-routine matters
+                       into matter_detail_cache + plain_language_titles + attachment_summaries.
+                       Phase 2 — paginates ELMS /search for matters introduced in 2026 not already
+                       cached by Phase 1, enriches and caches each one. Run once after deploy:
+                         DATABASE_URL=... ANTHROPIC_API_KEY=... python prepopulate_2026.py
 ```
 
 **To add a new data source for /chat:**
@@ -163,11 +178,135 @@ app/
 - **`plain_language_titles`** — `record_number → plain_title`; Claude translations cached across restarts
 - **`attachment_summaries`** — `url_hash (md5) → summary`; PDF summaries at 5th-grade level
 - **`meeting_summaries`** — `meeting_id → summary`; ≤50-word meeting summaries
-- **`matter_detail_cache`** — `record_number → {status, data JSONB}`; avoids re-calling ELMS on repeat views
+- **`matter_detail_cache`** — `record_number → {status, data JSONB}`; full `enrich_matter()` output; 1h TTL for active matters, indefinite for settled; primary source for all matter page loads
+- **`meeting_items`** — `(meeting_id, record_number)` → item metadata (title, type, action, is_routine, order); written by scheduler when fetching agenda content; read by `meeting_matters` route before calling ELMS
 - **`meeting_subscriptions`** — `email + body + confirmed + confirm_token + unsub_token`; meeting email subscribers
 - **`matter_subscriptions`** — `email + record_number + last_status + confirmed + tokens`; per-legislation trackers
 - **`meeting_email_log`** — `(email, meeting_id, email_type)` UNIQUE; per-subscriber deduplication guard
-- **`known_meetings`** — per-meeting state: `elms_status`, `nonroutine_count`, `agenda_sent_at`, `summary_sent_at`; enables diff-based detection without re-processing all 300 meetings each poll
+- **`known_meetings`** — per-meeting state: `meeting_datetime` (full ISO timestamp for DateTrigger scheduling), `elms_status`, `nonroutine_count`, `agenda_sent_at`, `summary_sent_at`, `new_meeting_sent_at`; scheduler reads this instead of polling ELMS on every check
+
+---
+
+## Data Flow — Meetings, Legislation & Matter Loads
+
+All user-facing page loads are designed to be **DB-only**. ELMS and Claude are called only by the background scheduler, which pre-populates every table before users arrive. ELMS fallbacks exist in every route but should almost never fire in steady state.
+
+### Scheduler: how the DB gets populated
+
+Two APScheduler jobs run in the background:
+
+```
+sync_meeting_schedule()           runs at startup + every 24 h
+────────────────────────────────────────────────────────────────────
+  ELMS /meeting-agenda (lightweight list, no agenda content)
+       │
+       ├─ Upsert each meeting into known_meetings
+       │    (meeting_id, body, date, datetime, elms_status)
+       │
+       ├─ Register DateTrigger one-shot polls at:
+       │    • meeting start time   → check_and_send_meeting_emails()
+       │    • meeting start + 3h  → check_and_send_meeting_emails()
+       │
+       └─ NEW meetings only: if subscribers exist, send "new meeting" alert
+
+
+check_and_send_meeting_emails()   called by DateTrigger + 4 h safety net
+────────────────────────────────────────────────────────────────────
+  Query known_meetings for meetings needing agenda or summary email
+  (never fetches ELMS schedule — sync_meeting_schedule() owns that)
+       │
+       ├─ For each meeting needing an AGENDA email (upcoming, items exist):
+       │    ELMS /meeting-agenda/<id>
+       │         │
+       │         ├─ Write items → meeting_items
+       │         │    (record_number, matter_id, title, type, is_routine, order)
+       │         │
+       │         ├─ _prewarm_matter_cache() — parallel, max 8 workers
+       │         │    for each non-routine item:
+       │         │      get_enriched_matter(record_number)
+       │         │        ├─ check matter_detail_cache (skip if fresh)
+       │         │        ├─ ELMS /matter/recordNumber/<rn>
+       │         │        ├─ enrich_matter() (status context, type desc,
+       │         │        │   PDF summaries → attachment_summaries)
+       │         │        ├─ plain_language_titles() → plain_language_titles
+       │         │        └─ write → matter_detail_cache
+       │         │
+       │         └─ Send agenda email to subscribers
+       │
+       └─ For each meeting needing a SUMMARY email (past, ≥3 h elapsed):
+            same ELMS + prewarm steps above, plus:
+            meeting_summary() → Claude Haiku → write → meeting_summaries
+            Send summary email to subscribers
+```
+
+### User-facing page loads (steady state: all DB)
+
+```
+MEETINGS TAB OPEN
+─────────────────
+Browser → GET /meetings/recent
+  └─ SELECT meeting_summaries + known_meetings (LEFT JOIN)
+       ORDER BY meeting_date DESC LIMIT 5
+       ← { meetings: [...] }                       ← DB only ✓
+
+"Browse all meetings"
+─────────────────────
+Browser → GET /meetings/all
+  └─ same query, LIMIT 50                          ← DB only ✓
+
+CLICK A MEETING
+───────────────
+Browser → GET /meetings/<id>/matters
+  ├─ SELECT meeting_items WHERE meeting_id = <id>  ← DB only ✓
+  │    (fallback: ELMS /meeting-agenda/<id> if not yet cached)
+  │
+  ├─ Parallel: SELECT matter_detail_cache
+  │    WHERE record_number IN (page of items)      ← DB only ✓
+  │    (fallback: ELMS /matter/recordNumber/<rn> on cache miss)
+  │
+  └─ plain_language_titles() batch DB lookup       ← DB only ✓
+       (fallback: Claude Haiku if title not cached)
+
+
+LEGISLATION TAB OPEN
+─────────────────────
+Browser → GET /legislation/recent
+  └─ SELECT matter_detail_cache
+       WHERE cached_at > NOW() - 60 days
+       ORDER BY (data->>'introductionDate') DESC
+       filter boilerplate in Python, return top 12  ← DB only ✓
+       (fallback: ELMS /search?orderby=introductionDate if cache empty)
+
+LEGISLATION SEARCH
+──────────────────
+Browser → GET /legislation/search?q=<query>
+  ├─ ELMS /search?search=<q>&top=25              ← ELMS (unavoidable for FTS)
+  ├─ filter boilerplate
+  ├─ Claude Haiku rerank → top 10 record numbers
+  └─ SELECT matter_detail_cache
+       WHERE record_number IN (top 10 rns)        ← DB only ✓
+       (fallback: ELMS search result fields if rn not in cache)
+
+CLICK A MATTER
+──────────────
+Browser → GET /legislation/matters/<rn>
+  └─ get_enriched_matter(rn)
+       ├─ SELECT matter_detail_cache WHERE record_number = <rn>
+       │    return immediately if cached + not stale  ← DB only ✓
+       └─ fallback (rare, new legislation only):
+            ELMS /matter/recordNumber/<rn>
+            enrich_matter() + plain_language_titles()
+            write → matter_detail_cache
+```
+
+### Cache staleness policy (`matter_detail_cache`)
+
+| Matter state | TTL |
+|---|---|
+| Active (in committee, referred) | 1 hour |
+| Settled (passed, failed, withdrawn, tabled) | indefinite |
+
+The scheduler re-warms active matters every time a meeting they appear in is processed, so the 1-hour TTL only matters for direct user lookups between scheduler runs.
 
 ---
 

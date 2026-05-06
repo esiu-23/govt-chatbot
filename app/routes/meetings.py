@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,7 +27,7 @@ def meetings_recent():
         return jsonify(cached["data"])
     try:
         results = _meetings_from_db(limit=5)
-        if len(results) >= 5:
+        if results:
             payload = {"meetings": results}
             _cache["recent"] = {"ts": time.time(), "data": payload}
             return jsonify(payload)
@@ -45,6 +46,8 @@ def meetings_recent():
             if key not in seen:
                 seen.add(key)
                 past.append(m)
+                # Seed known_meetings so the next cache-miss is DB-only
+                _seed_known_meeting(m)
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             futures = {pool.submit(_enrich_meeting, m): m for m in past}
@@ -90,7 +93,7 @@ def meeting_matters(meeting_id):
         offset = max(0, int(request.args.get("offset", 0)))
         limit  = min(50, max(1, int(request.args.get("limit", 10))))
 
-        items = fetch_meeting_items(meeting_id)
+        items = _items_from_cache(meeting_id) or fetch_meeting_items(meeting_id)
         valid_items = [i for i in items if i.get("recordNumber")]
 
         sorted_items = (
@@ -103,7 +106,7 @@ def meeting_matters(meeting_id):
         detail_map = {}
         with ThreadPoolExecutor(max_workers=10) as pool:
             futures = {
-                pool.submit(fetch_matter_detail_slim, i["recordNumber"]): i["recordNumber"]
+                pool.submit(_slim_from_cache, i["recordNumber"]): i["recordNumber"]
                 for i in page
             }
             for fut in as_completed(futures):
@@ -149,12 +152,12 @@ def _meetings_from_db(limit: int = 5) -> list[dict]:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
-                """SELECT ms.meeting_id, ms.body, ms.meeting_date, ms.summary,
+                """SELECT km.meeting_id, km.body, km.meeting_date, ms.summary,
                           km.location, km.elms_status, km.nonroutine_count, km.routine_count
-                   FROM meeting_summaries ms
-                   LEFT JOIN known_meetings km USING (meeting_id)
-                   WHERE ms.meeting_date IS NOT NULL AND ms.meeting_date <= %s
-                   ORDER BY ms.meeting_date DESC
+                   FROM known_meetings km
+                   LEFT JOIN meeting_summaries ms USING (meeting_id)
+                   WHERE km.meeting_date <= %s
+                   ORDER BY km.meeting_date DESC
                    LIMIT %s""",
                 (today, limit),
             )
@@ -179,6 +182,80 @@ def _meetings_from_db(limit: int = 5) -> list[dict]:
             "totalCount":      nonroutine_count + routine_count,
         })
     return results
+
+
+def _items_from_cache(meeting_id: str) -> list[dict]:
+    """Read agenda items from meeting_items table; returns [] on miss so caller falls back to ELMS."""
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT record_number, matter_id, matter_title, matter_type, action_name, is_routine
+                   FROM meeting_items WHERE meeting_id = %s
+                   ORDER BY is_routine ASC, item_order ASC""",
+                (meeting_id,),
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "recordNumber": r[0],
+                    "matterId":     r[1],
+                    "matterTitle":  r[2],
+                    "matterType":   r[3],
+                    "actionName":   r[4],
+                    "isRoutine":    r[5],
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        logger.warning("[meetings] items_from_cache %s: %s", meeting_id, e)
+        return []
+
+
+def _slim_from_cache(record_number: str) -> dict:
+    """Read slim matter fields from matter_detail_cache; fall back to ELMS only on cache miss."""
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT status, data FROM matter_detail_cache WHERE record_number = %s",
+                (record_number,),
+            )
+            row = cur.fetchone()
+            if row:
+                status, data = row
+                d = data if isinstance(data, dict) else json.loads(data)
+                return {
+                    "recordNumber": record_number,
+                    "status": d.get("status") or status,
+                    "substatus": d.get("subStatus") or d.get("substatus"),
+                    "introductionDate": d.get("introductionDate"),
+                    "controllingBody": d.get("controllingBody"),
+                }
+    except Exception as e:
+        logger.warning("[meetings] slim cache read failed for %s: %s", record_number, e)
+    return fetch_matter_detail_slim(record_number)
+
+
+def _seed_known_meeting(m: dict) -> None:
+    """Insert a meeting stub into known_meetings so future loads skip ELMS."""
+    mid      = m.get("meetingId")
+    body     = m.get("body") or ""
+    date_str = (m.get("date") or "")[:10]
+    status   = (m.get("status") or "").strip()
+    if not mid or not body or not date_str:
+        return
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO known_meetings (meeting_id, body, meeting_date, elms_status)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (meeting_id) DO NOTHING""",
+                (mid, body, date_str, status),
+            )
+    except Exception as e:
+        logger.warning("[meetings] seed_known_meeting %s: %s", mid, e)
 
 
 def _elms_get_meetings(top: int = 100):
