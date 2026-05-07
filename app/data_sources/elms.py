@@ -383,6 +383,19 @@ def _next_meeting_for_body(body: str) -> dict | None:
     return result
 
 
+def _s_variant(record_number: str) -> str:
+    """Return the substituted-matter variant of a record number.
+
+    Chicago eLMS adds an 'S' before the type letter when a matter is substituted,
+    e.g. O2026-0023357 → SO2026-0023357.  If the number already starts with 'S'
+    (i.e. it is itself the substituted form), return it unchanged so callers can
+    always pass either form.
+    """
+    if record_number.startswith("S") and len(record_number) > 1 and not record_number[1].isdigit():
+        return record_number  # already the substituted form
+    return "S" + record_number
+
+
 def get_enriched_matter(record_number: str) -> dict:
     """Return enriched matter data, reading from matter_detail_cache before hitting ELMS.
 
@@ -391,13 +404,22 @@ def get_enriched_matter(record_number: str) -> dict:
     processes a meeting, so the cache is only stale between scheduler runs (hours),
     not between user loads.  A cache miss only fires for matters the scheduler
     has never seen.
+
+    Both the canonical record number and its substituted S-variant are checked in
+    the DB so that either form resolves to cached data.
     """
+    s_number = _s_variant(record_number)
+    candidates = [record_number] if s_number == record_number else [record_number, s_number]
+
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT data FROM matter_detail_cache WHERE record_number = %s",
-                (record_number,),
+                """SELECT data FROM matter_detail_cache
+                   WHERE record_number = ANY(%s)
+                   ORDER BY (status IS NOT NULL) DESC, cached_at DESC
+                   LIMIT 1""",
+                (candidates,),
             )
             row = cur.fetchone()
             if row:
@@ -406,7 +428,11 @@ def get_enriched_matter(record_number: str) -> dict:
     except Exception as e:
         logger.warning("[elms] matter_detail_cache read error: %s", e)
 
-    matter = _elms_get(f"/matter/recordNumber/{record_number}")
+    try:
+        matter = _elms_get(f"/matter/recordNumber/{record_number}")
+    except Exception:
+        # Substituted matters get an S-prefixed record number; try that fallback.
+        matter = _elms_get(f"/matter/recordNumber/{s_number}")
     matter = enrich_matter(matter)
     pt = plain_language_titles([matter])
     matter["plainLanguageTitle"] = pt.get(matter.get("recordNumber"))
@@ -460,10 +486,9 @@ def _build_legislative_tracker(matter: dict) -> list:
             if "committee" in committee_body or _is_committee_outcome(name):
                 committee_hearing_action = action
 
-        if committee_outcome_action is None and _is_committee_outcome(name):
+        if _is_committee_outcome(name):
             committee_outcome_action = action
-            if name in ("tabled", "held in committee"):
-                blocked_at_committee = True
+            blocked_at_committee = name in ("tabled", "held in committee")
 
         def _is_council_vote(n):
             return (
@@ -490,6 +515,7 @@ def _build_legislative_tracker(matter: dict) -> list:
             "id": sid, "label": label, "sublabel": sublabel, "status": status,
             "date": (action_obj.get("actionDate") or None) if action_obj else None,
             "actionName": (action_obj.get("actionName") or None) if action_obj else None,
+            "actionByName": (action_obj.get("actionByName") or None) if action_obj else None,
         }
 
     s1 = "complete" if referred_action else "pending"
@@ -674,6 +700,223 @@ def enrich_matter(matter: dict) -> dict:
     return matter
 
 
+_STANDARD_NO_MATTER_SUMMARY = (
+    "No votes were taken at this meeting. Instead, a subject matter hearing took place. "
+    "Click into this meeting to see the meeting agenda."
+)
+
+_MATTER_ID_RE = re.compile(r'\b([A-Z]{1,3}(?:-?\d{4})-\d+)\b')
+
+
+def _items_from_meeting_items_table(meeting_id: str) -> list[dict]:
+    """Read agenda items for a meeting directly from the meeting_items DB table."""
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT record_number, matter_id, matter_title, matter_type, action_name, is_routine
+                   FROM meeting_items WHERE meeting_id = %s
+                   ORDER BY is_routine ASC, item_order ASC""",
+                (meeting_id,),
+            )
+            return [
+                {
+                    "recordNumber": r[0],
+                    "matterId":     r[1],
+                    "matterTitle":  r[2],
+                    "matterType":   r[3],
+                    "actionName":   r[4],
+                    "isRoutine":    r[5],
+                }
+                for r in cur.fetchall()
+            ]
+    except Exception as e:
+        logger.warning("[elms] _items_from_meeting_items_table %s: %s", meeting_id, e)
+        return []
+
+
+def _fetch_agenda_text(meeting_id: str) -> str | None:
+    """Download the Agenda PDF from meeting files and return extracted text."""
+    try:
+        detail = _elms_get(f"/meeting-agenda/{meeting_id}")
+        files = detail.get("files") or []
+    except Exception:
+        return None
+
+    agenda_url = None
+    for f in files:
+        name = (f.get("fileName") or f.get("name") or "").lower()
+        if "agenda" in name:
+            agenda_url = f.get("path") or f.get("url")
+            break
+    if not agenda_url:
+        for f in files:
+            url = f.get("path") or f.get("url") or ""
+            if ".pdf" in url.lower():
+                agenda_url = url
+                break
+
+    if not agenda_url:
+        return None
+
+    try:
+        from io import BytesIO
+        from pypdf import PdfReader
+        resp = _http.get(agenda_url, timeout=20, stream=True)
+        resp.raise_for_status()
+        content = b""
+        for chunk in resp.iter_content(65536):
+            content += chunk
+            if len(content) > 5 * 1024 * 1024:
+                break
+        text = ""
+        for page in PdfReader(BytesIO(content)).pages[:20]:
+            text += page.extract_text() or ""
+            if len(text) > 8000:
+                break
+        return text.strip() or None
+    except Exception:
+        return None
+
+
+def _extract_matter_ids_from_text(text: str) -> list[str]:
+    """Extract Chicago City Council record numbers from agenda text (e.g. R2026-0024891)."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for mid in _MATTER_ID_RE.findall(text):
+        if mid not in seen:
+            seen.add(mid)
+            result.append(mid)
+    return result
+
+
+def _summary_from_agenda(body: str, date_str: str, agenda_text: str) -> str:
+    """Generate a ≤50-word meeting summary from agenda text via Claude."""
+    prompt = (
+        f"Summarize this Chicago City Council {body} meeting agenda ({date_str}) in 50 words or fewer. "
+        "Focus on the main topics discussed. "
+        "Note: this was a subject matter hearing — no votes were taken. "
+        "Write at a 5th grade reading level. Do not use bullet points — write 2-3 plain sentences.\n\n"
+        f"Agenda:\n{agenda_text[:4000]}"
+    )
+    try:
+        resp = _claude_create(
+            model=CLAUDE_PRIMARY,
+            max_tokens=150,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.content[0].text.strip()
+    except Exception:
+        return _STANDARD_NO_MATTER_SUMMARY
+
+
+def link_agenda_matters(meeting_id: str, body: str, date_str: str, matter_ids: list[str]) -> None:
+    """Link matter IDs found in an agenda to a meeting that eLMS didn't connect them to.
+
+    For each matter ID:
+    - Skips if already in meeting_items for this meeting
+    - Fetches or loads matter data from cache/ELMS
+    - Injects a synthetic "Discussed in Committee" action so the legislative
+      tracker shows step 2 complete / step 3 pending
+    - Upserts into meeting_items with action_name "discussed in committee"
+    """
+    if not matter_ids:
+        return
+
+    for matter_id in matter_ids:
+        try:
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT 1 FROM meeting_items WHERE meeting_id = %s AND record_number = %s",
+                    (meeting_id, matter_id),
+                )
+                if cur.fetchone():
+                    continue
+        except Exception:
+            pass
+
+        matter_data: dict | None = None
+        try:
+            with _db() as conn:
+                cur = conn.cursor()
+                s_matter_id = _s_variant(matter_id)
+                id_candidates = [matter_id] if s_matter_id == matter_id else [matter_id, s_matter_id]
+                cur.execute(
+                    "SELECT data FROM matter_detail_cache WHERE record_number = ANY(%s)",
+                    (id_candidates,),
+                )
+                row = cur.fetchone()
+                if row:
+                    matter_data = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        except Exception:
+            pass
+
+        if matter_data is None:
+            try:
+                matter_data = get_enriched_matter(matter_id)
+            except Exception:
+                logger.warning("[elms] link_agenda_matters: could not fetch %s", matter_id)
+                matter_data = {"recordNumber": matter_id}
+
+        matter_title = matter_data.get("title") or matter_data.get("shortTitle") or matter_id
+        matter_type  = matter_data.get("type") or ""
+
+        # Inject synthetic committee-hearing action only if one doesn't already exist
+        actions = list(matter_data.get("actions") or [])
+        body_lower = body.lower()
+        has_hearing = any(
+            "refer" not in (a.get("actionName") or "").lower()
+            and (
+                body_lower in (a.get("actionByName") or "").lower()
+                or (a.get("actionByName") or "").lower() in body_lower
+            )
+            and (a.get("actionDate") or "")[:10] == date_str
+            for a in actions
+        )
+
+        if not has_hearing:
+            synthetic = {
+                "actionName": "Discussed in Committee",
+                "actionDate": f"{date_str}T00:00:00",
+                "actionByName": body,
+                "agendaDerived": True,
+            }
+            actions = sorted(actions + [synthetic], key=lambda a: (a.get("actionDate") or ""))
+            matter_data["actions"] = actions
+            matter_data["legislativeTracker"] = _build_legislative_tracker(matter_data)
+            try:
+                with _db() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """INSERT INTO matter_detail_cache (record_number, status, data)
+                           VALUES (%s, %s, %s)
+                           ON CONFLICT (record_number) DO UPDATE
+                             SET cached_at = NOW(), status = EXCLUDED.status, data = EXCLUDED.data""",
+                        (matter_id, matter_data.get("status"), json.dumps(matter_data)),
+                    )
+            except Exception as e:
+                logger.warning("[elms] link_agenda_matters: cache update failed %s: %s", matter_id, e)
+
+        try:
+            with _db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO meeting_items
+                           (meeting_id, record_number, matter_id, matter_title,
+                            matter_type, action_name, is_routine, item_order)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (meeting_id, record_number) DO UPDATE
+                         SET action_name = EXCLUDED.action_name,
+                             cached_at   = NOW()""",
+                    (meeting_id, matter_id, matter_data.get("matterId"),
+                     matter_title, matter_type, "discussed in committee",
+                     _classify_routine(matter_type, matter_title), 999),
+                )
+        except Exception as e:
+            logger.warning("[elms] link_agenda_matters: meeting_items insert failed %s: %s", matter_id, e)
+
+
 def meeting_summary(meeting_id: str, body: str, date_str: str, items: list) -> str:
     """Generate a ≤50-word summary of a meeting. DB-cached by meeting_id."""
     try:
@@ -681,7 +924,7 @@ def meeting_summary(meeting_id: str, body: str, date_str: str, items: list) -> s
             cur = conn.cursor()
             cur.execute("SELECT summary FROM meeting_summaries WHERE meeting_id = %s", (meeting_id,))
             row = cur.fetchone()
-            if row:
+            if row and row[0] != _STANDARD_NO_MATTER_SUMMARY:
                 return row[0]
     except Exception:
         pass
@@ -690,10 +933,50 @@ def meeting_summary(meeting_id: str, body: str, date_str: str, items: list) -> s
     routine_count = sum(1 for i in items if i.get("isRoutine"))
 
     if not items:
-        summary = (
-            "No votes were taken at this meeting. Instead, a subject matter hearing took place. "
-            "Click into this meeting to see the meeting agenda."
-        )
+        agenda_text = _fetch_agenda_text(meeting_id)
+        if agenda_text:
+            summary = _summary_from_agenda(body, date_str, agenda_text)
+            matter_ids = _extract_matter_ids_from_text(agenda_text)
+            if matter_ids:
+                logger.info("[elms] meeting %s agenda mentions %d matter IDs: %s",
+                            meeting_id, len(matter_ids), matter_ids)
+                link_agenda_matters(meeting_id, body, date_str, matter_ids)
+        else:
+            # PDF unavailable — fall back to any matters already linked via meeting_items
+            linked_items = _items_from_meeting_items_table(meeting_id)
+            if linked_items:
+                logger.info("[elms] meeting %s: PDF unavailable, generating summary from %d linked matters",
+                            meeting_id, len(linked_items))
+                linked_non_routine = [i for i in linked_items if not i.get("isRoutine")]
+                linked_routine_count = sum(1 for i in linked_items if i.get("isRoutine"))
+                if linked_non_routine:
+                    nr_titles = "\n".join(
+                        f"- {i.get('matterType', 'Item')}: {(i.get('matterTitle') or '')[:120]}"
+                        for i in linked_non_routine[:20]
+                    )
+                    prompt = (
+                        f"Summarize this Chicago City Council {body} meeting ({date_str}) in 50 words or fewer. "
+                        "This was a subject matter hearing — no final votes were taken. "
+                        "Focus on what topics were discussed with specific detail. "
+                        f"Mention routine items only as a count ({linked_routine_count} routine items). "
+                        "Write at a 5th grade reading level. Do not use bullet points — write 2-3 plain sentences.\n\n"
+                        f"Items discussed:\n{nr_titles}\n"
+                        f"Routine items: {linked_routine_count}"
+                    )
+                    try:
+                        resp = _claude_create(
+                            model=CLAUDE_PRIMARY,
+                            max_tokens=150,
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                        summary = resp.content[0].text.strip()
+                    except Exception:
+                        summary = _STANDARD_NO_MATTER_SUMMARY
+                else:
+                    summary = _STANDARD_NO_MATTER_SUMMARY
+            else:
+                summary = _STANDARD_NO_MATTER_SUMMARY
+
         try:
             with _db() as conn:
                 cur = conn.cursor()
@@ -743,7 +1026,8 @@ def meeting_summary(meeting_id: str, body: str, date_str: str, items: list) -> s
                     """INSERT INTO meeting_summaries (meeting_id, body, meeting_date, summary)
                        VALUES (%s, %s, %s, %s)
                        ON CONFLICT (meeting_id) DO UPDATE
-                         SET body = COALESCE(EXCLUDED.body, meeting_summaries.body),
+                         SET summary = EXCLUDED.summary,
+                             body = COALESCE(EXCLUDED.body, meeting_summaries.body),
                              meeting_date = COALESCE(EXCLUDED.meeting_date, meeting_summaries.meeting_date)""",
                     (meeting_id, body, date_str, summary)
                 )

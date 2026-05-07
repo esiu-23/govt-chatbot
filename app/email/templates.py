@@ -107,6 +107,36 @@ def _shell(header_label: str, header_title: str, header_date: str, body_html: st
 </body></html>"""
 
 
+def _meeting_link_html(meeting_id: str, label: str = "View full meeting details") -> str:
+    """Return an HTML anchor linking to the meeting deep-link in the app."""
+    if not meeting_id:
+        return f'<a href="{APP_URL}#legislation" style="color:#1a6aad;text-decoration:none;">→ {_h(label)}</a>'
+    url = f"{APP_URL}?meeting={html.escape(meeting_id, quote=True)}#legislation"
+    return f'<a href="{url}" style="color:#1a6aad;text-decoration:none;">→ {_h(label)}</a>'
+
+
+def _meeting_docs_html(meeting_docs: list[dict]) -> str:
+    """Return an HTML block listing meeting-level document attachments."""
+    if not meeting_docs:
+        return ""
+    rows = ""
+    for doc in meeting_docs:
+        name = _h(doc.get("name") or "Meeting document")
+        url  = html.escape(doc.get("url") or "", quote=True)
+        if url:
+            rows += f'<div style="margin:6px 0"><a href="{url}" style="color:#1a6aad;text-decoration:none;">↗ {name}</a></div>\n'
+        else:
+            rows += f'<div style="margin:6px 0;color:#444">{name}</div>\n'
+    return f"""
+<p class="section-label">Meeting documents</p>
+<div style="border:1px solid #e5e5e5;padding:16px;border-radius:2px;margin-bottom:20px">
+  <p style="font-size:13px;color:#555;margin:0 0 12px">
+    No legislation was voted on at this meeting. The agenda documents are linked below.
+  </p>
+  {rows}
+</div>"""
+
+
 def render_summary_email(
     body: str,
     date_str: str,
@@ -114,6 +144,8 @@ def render_summary_email(
     items: list[dict],
     routine_count: int,
     unsub_url: str,
+    meeting_id: str = "",
+    meeting_docs: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Return (subject, html) for a post-meeting summary email."""
     fmt_date = _fmt_date(date_str)
@@ -123,22 +155,31 @@ def render_summary_email(
     display = non_routine[:8]
     overflow = len(non_routine) - len(display)
 
-    count_note = f"{len(non_routine)} non-routine item{'s' if len(non_routine) != 1 else ''}"
-    if routine_count:
-        count_note += f", {routine_count} routine item{'s' if routine_count != 1 else ''} (claims, permits, communications)"
+    meeting_link = _meeting_link_html(meeting_id, "View this meeting at thegovernmentandme.tools")
 
-    cards = "".join(_matter_card_html(i) for i in display)
-    more = ""
-    if overflow > 0:
-        more = f'<div class="more-link"><a href="{APP_URL}">+ {overflow} more item{"s" if overflow != 1 else ""} — view at thegovernmentandme.tools</a></div>'
+    if non_routine:
+        count_note = f"{len(non_routine)} non-routine item{'s' if len(non_routine) != 1 else ''}"
+        if routine_count:
+            count_note += f", {routine_count} routine item{'s' if routine_count != 1 else ''} (claims, permits, communications)"
 
-    body_html = f"""
-<p class="section-label">What happened</p>
-<div class="overview">{_h(summary)}</div>
+        cards = "".join(_matter_card_html(i) for i in display)
+        more = ""
+        if overflow > 0:
+            more = f'<div class="more-link"><a href="{APP_URL}?meeting={html.escape(meeting_id or "", quote=True)}#legislation">+ {overflow} more item{"s" if overflow != 1 else ""} — view at thegovernmentandme.tools</a></div>'
+
+        matters_html = f"""
 <p class="section-label">Non-routine matters ({len(non_routine)})</p>
 <p class="count-note">{_h(count_note)}</p>
 {cards}
 {more}"""
+    else:
+        matters_html = _meeting_docs_html(meeting_docs or [])
+
+    body_html = f"""
+<p class="section-label">What happened</p>
+<div class="overview">{_h(summary)}</div>
+{matters_html}
+<div style="margin-top:20px;font-size:13px">{meeting_link}</div>"""
 
     return subject, _shell(body, body, f"Meeting Summary — {fmt_date}", body_html, unsub_url)
 
@@ -150,6 +191,8 @@ def render_agenda_email(
     items: list[dict],
     routine_count: int,
     unsub_url: str,
+    meeting_id: str = "",
+    meeting_docs: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Return (subject, html) for a pre-meeting agenda email."""
     fmt_date = _fmt_date(date_str)
@@ -159,26 +202,34 @@ def render_agenda_email(
     display = non_routine[:8]
     overflow = len(non_routine) - len(display)
 
-    total = len(non_routine) + routine_count
-    count_note = f"{total} item{'s' if total != 1 else ''} scheduled"
-    if non_routine and routine_count:
-        count_note += f" — {len(non_routine)} legislation item{'s' if len(non_routine) != 1 else ''}, {routine_count} routine"
-
     loc_html = f'<p class="meta-row"><strong>Where:</strong> {_h(location)}</p>' if location else ""
+    meeting_link = _meeting_link_html(meeting_id, "View this meeting at thegovernmentandme.tools")
 
-    cards = "".join(_matter_card_html(i, show_status=True) for i in display)
-    more = ""
-    if overflow > 0:
-        more = f'<div class="more-link"><a href="{APP_URL}">+ {overflow} more item{"s" if overflow != 1 else ""} — view full agenda at thegovernmentandme.tools</a></div>'
+    if non_routine:
+        total = len(non_routine) + routine_count
+        count_note = f"{total} item{'s' if total != 1 else ''} scheduled"
+        if routine_count:
+            count_note += f" — {len(non_routine)} legislation item{'s' if len(non_routine) != 1 else ''}, {routine_count} routine"
+
+        cards = "".join(_matter_card_html(i, show_status=True) for i in display)
+        more = ""
+        if overflow > 0:
+            more = f'<div class="more-link"><a href="{APP_URL}?meeting={html.escape(meeting_id or "", quote=True)}#legislation">+ {overflow} more item{"s" if overflow != 1 else ""} — view full agenda at thegovernmentandme.tools</a></div>'
+
+        agenda_section = f"""
+<p class="count-note" style="margin-top:12px">{_h(count_note)}</p>
+<p class="section-label" style="margin-top:20px">What's on the agenda</p>
+{cards}
+{more}"""
+    else:
+        agenda_section = _meeting_docs_html(meeting_docs or [])
 
     body_html = f"""
 <p class="section-label">When &amp; where</p>
 <p class="meta-row"><strong>When:</strong> {_h(fmt_date)}</p>
 {loc_html}
-<p class="count-note" style="margin-top:12px">{_h(count_note)}</p>
-<p class="section-label" style="margin-top:20px">What's on the agenda</p>
-{cards}
-{more}"""
+{agenda_section}
+<div style="margin-top:20px;font-size:13px">{meeting_link}</div>"""
 
     return subject, _shell(body, body, f"Meeting Agenda — {fmt_date}", body_html, unsub_url)
 

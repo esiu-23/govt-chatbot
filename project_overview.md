@@ -1,5 +1,11 @@
 # The Government & Me — Chicago & Illinois Civic Tools
 
+** Notes for Substack: eLMS data is incomplete/buggy, there are meetings where the matter is not tied ot the meeting. So had to use Claude to parse the Agenda to find the discussed matters & link them to the relevant meetings.
+
+Substituted matters. May be under original ID or with S added to the ID, and eLMS API isn't always consisted with how they tie the actions to the ID.
+
+**
+
 A civic web app for Chicago residents, served from a single Flask process at `thegovernmentandme.tools`. Phase 1 refactor complete: `api.py` is now a 17-line shim; all logic lives in `app/`.
 
 **Feature 1 — City & State Services Chat:** RAG chatbot answering plain-English questions about Chicago city *and* Illinois state services. Draws from chicago.gov, cps.edu, chicagoparkdistrict.com, and Illinois state sites (illinois.gov, ides.illinois.gov, dhs.state.il.us). Live queries to both the Chicago Open Data Portal and Illinois Open Data Portal (data.illinois.gov) for quantitative questions. Chat proactively identifies whether a service is city-run, state-run, or an independent authority.
@@ -40,6 +46,7 @@ All HTML-serving routes set `Cache-Control: no-store` via `_no_cache()`.
 
 ### Deep linking
 `/app?matter=O-2025-1234` — auto-opens the legislation tab and loads the given matter. Used in email links.
+`/app?meeting=<meetingId>` — auto-opens the legislation tab and loads the given meeting's matters/documents. Used in meeting email links.
 
 ---
 
@@ -95,7 +102,7 @@ app/
     rag.py             RAGSource — voyage embed + pgvector cosine search
     socrata.py         SocrataSource — Chicago DATASETS, query_socrata, parse_intent, community areas
     illinois_socrata.py IllinoisSocrataSource — IL state datasets (IDES, IDOT, IDHS, ISBE, IDPH)
-    elms.py            ELMS helpers — get_enriched_matter (DB-first), enrich_matter, plain_language_titles, meeting_summary, etc.
+    elms.py            ELMS helpers — get_enriched_matter (DB-first), enrich_matter, plain_language_titles, meeting_summary, link_agenda_matters, etc.
     legiscan.py        Legiscan API — IL state bills, enrich_bill, plain_language_titles, bill summaries
   email/
     templates.py       render_summary_email, render_agenda_email, render_matter_update_email
@@ -120,8 +127,10 @@ prepopulate_2026.py   One-time script: pre-populates all DB caches for 2026 meet
                        Phase 1 — fetches every past 2026 meeting, upserts known_meetings, caches
                        meeting_items, generates meeting_summaries, and enriches all non-routine matters
                        into matter_detail_cache + plain_language_titles + attachment_summaries.
-                       Phase 2 — paginates ELMS /search for matters introduced in 2026 not already
-                       cached by Phase 1, enriches and caches each one. Run once after deploy:
+                       Phase 2 — collects all record numbers from meeting_items JOIN known_meetings
+                       for 2026 meetings (catches any-year matters that appeared on a 2026 agenda,
+                       e.g. 2025-introduced substitute ordinances), enriches uncached ones.
+                       Run once after deploy:
                          DATABASE_URL=... ANTHROPIC_API_KEY=... python prepopulate_2026.py
 ```
 
@@ -177,9 +186,9 @@ prepopulate_2026.py   One-time script: pre-populates all DB caches for 2026 meet
 - **`il_document_summaries`** — `url_hash → summary`; IL bill PDF summaries at 5th-grade level
 - **`plain_language_titles`** — `record_number → plain_title`; Claude translations cached across restarts
 - **`attachment_summaries`** — `url_hash (md5) → summary`; PDF summaries at 5th-grade level
-- **`meeting_summaries`** — `meeting_id → summary`; ≤50-word meeting summaries
-- **`matter_detail_cache`** — `record_number → {status, data JSONB}`; full `enrich_matter()` output; 1h TTL for active matters, indefinite for settled; primary source for all matter page loads
-- **`meeting_items`** — `(meeting_id, record_number)` → item metadata (title, type, action, is_routine, order); written by scheduler when fetching agenda content; read by `meeting_matters` route before calling ELMS. Meetings with no items → `hasNoMatters: true` response with `meetingDocuments[]` from meeting `files[]`
+- **`meeting_summaries`** — `meeting_id → summary`; ≤50-word meeting summaries. For no-item meetings, generated from the Agenda PDF (overwrites the generic placeholder text if present).
+- **`matter_detail_cache`** — `record_number → {status, data JSONB}`; full `enrich_matter()` output; 1h TTL for active matters, indefinite for settled; primary source for all matter page loads. `legislativeTracker` steps now include `actionByName` (the body that took the action, e.g. "Committee on Finance"). Backfill: `python backfill_action_descriptions.py`
+- **`meeting_items`** — `(meeting_id, record_number)` → item metadata (title, type, action, is_routine, order); written by scheduler when fetching agenda content; read by `meeting_matters` route before calling ELMS. Meetings with no items → `hasNoMatters: true` response with `meetingDocuments[]` from meeting `files[]`. For agenda-only meetings, `link_agenda_matters()` populates this table from matter IDs extracted from the Agenda PDF, with `action_name = "discussed in committee"`.
 - **`meeting_subscriptions`** — `email + body + confirmed + confirm_token + unsub_token`; meeting email subscribers
 - **`matter_subscriptions`** — `email + record_number + last_status + confirmed + tokens`; per-legislation trackers
 - **`meeting_email_log`** — `(email, meeting_id, email_type)` UNIQUE; per-subscriber deduplication guard

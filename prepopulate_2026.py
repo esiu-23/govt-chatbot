@@ -11,9 +11,10 @@ Phase 1 — Meetings occurred in 2026:
     • Enrich and cache every non-routine matter into matter_detail_cache,
       plain_language_titles, and attachment_summaries
 
-Phase 2 — Matters introduced/active in 2026:
-  Search ELMS for matters with introductionDate in 2026 that weren't
-  already enriched during Phase 1. Enrich and cache each one.
+Phase 2 — Matters with an action date in 2026:
+  Collect all record numbers from 2026 meeting agendas (meeting_items join
+  known_meetings). This catches matters introduced in any year that appeared
+  on a 2026 committee or council agenda. Enrich and cache each uncached one.
 
 Run from project root (with DATABASE_URL and ANTHROPIC_API_KEY set):
     python prepopulate_2026.py
@@ -201,12 +202,13 @@ def _process_one_meeting(m: dict) -> dict:
         stats["errors"].append(f"fetch_items: {e}")
         items = []
 
-    if items:
-        try:
-            summary = meeting_summary(meeting_id, body, date_str, items)
-            stats["summary"] = bool(summary)
-        except Exception as e:
-            stats["errors"].append(f"meeting_summary: {e}")
+    # Always generate a summary — for no-item meetings this fetches the Agenda
+    # PDF, extracts matter IDs, and calls link_agenda_matters automatically.
+    try:
+        summary = meeting_summary(meeting_id, body, date_str, items)
+        stats["summary"] = bool(summary)
+    except Exception as e:
+        stats["errors"].append(f"meeting_summary: {e}")
 
     non_routine = [i for i in items if not i.get("isRoutine") and i.get("recordNumber")]
 
@@ -231,56 +233,103 @@ def _process_one_meeting(m: dict) -> dict:
 # Phase 2 helpers
 # ---------------------------------------------------------------------------
 
-def _search_2026_matter_rns() -> set[str]:
+def _active_2026_matter_rns() -> set[str]:
+    """Collect record numbers from published 2026 meeting agendas (meeting_items table)."""
+    from app.db import _db
+
+    print("Collecting record numbers from published 2026 meeting agendas…", flush=True)
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT DISTINCT mi.record_number
+                   FROM meeting_items mi
+                   JOIN known_meetings km USING (meeting_id)
+                   WHERE km.meeting_date >= %s
+                     AND km.meeting_date <= %s
+                     AND mi.record_number IS NOT NULL""",
+                (YEAR_START, TODAY),
+            )
+            rns = {row[0] for row in cur.fetchall()}
+    except Exception as e:
+        logger.warning("Could not read meeting_items: %s", e)
+        rns = set()
+
+    print(f"  → {len(rns)} record numbers from published agendas", flush=True)
+    return rns
+
+
+def _empty_agenda_meetings() -> list[tuple]:
+    """Return (meeting_id, body, meeting_date) for 2026 meetings with no items in meeting_items."""
+    from app.db import _db
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT km.meeting_id, km.body, km.meeting_date
+                   FROM known_meetings km
+                   WHERE km.meeting_date >= %s
+                     AND km.meeting_date <= %s
+                     AND km.elms_status != 'Cancelled'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM meeting_items mi WHERE mi.meeting_id = km.meeting_id
+                     )
+                   ORDER BY km.meeting_date""",
+                (YEAR_START, TODAY),
+            )
+            return cur.fetchall()
+    except Exception as e:
+        logger.warning("Could not query empty-agenda meetings: %s", e)
+        return []
+
+
+def _elms_search_for_committee(body: str, top: int = 200) -> list[dict]:
+    """Search ELMS for matters associated with a committee body."""
+    from app.data_sources.elms import _elms_get
+    try:
+        raw = _elms_get("/search", {"search": body, "top": top})
+        return raw.get("value", raw.get("data", []))
+    except Exception as e:
+        logger.warning("ELMS search failed for %r: %s", body, e)
+        return []
+
+
+def _rns_for_empty_agenda_meeting(body: str, date_str: str) -> set[str]:
     """
-    Paginate ELMS /search ordered by introductionDate desc, collecting
-    record numbers for matters introduced in 2026.
-    Stops when introductionDate drops below 2026-01-01.
+    Search ELMS for matters acted on by `body` within ±1 day of `date_str`.
+    Returns record numbers of matching matters.
     """
     from app.data_sources.elms import _elms_get
+    from datetime import date, timedelta
 
+    try:
+        meeting_date = date.fromisoformat(date_str)
+    except Exception:
+        return set()
+
+    window_start = (meeting_date - timedelta(days=1)).isoformat()
+    window_end   = (meeting_date + timedelta(days=1)).isoformat()
+
+    results = _elms_search_for_committee(body)
     rns: set[str] = set()
-    skip = 0
-    top  = 50
-
-    print(f"Searching ELMS for matters with introductionDate {YEAR_START}–{TODAY}…", flush=True)
-
-    while True:
+    for m in results:
+        rn = m.get("recordNumber")
+        if not rn:
+            continue
+        # Fetch full matter to inspect actions (search result doesn't include actions)
         try:
-            raw = _elms_get("/search", {
-                "search": "", "top": top, "skip": skip,
-                "orderby": "introductionDate desc",
-            })
-        except Exception as e:
-            logger.warning("search page skip=%d failed: %s", skip, e)
-            break
-
-        page = raw.get("value", raw.get("data", []))
-        if not page:
-            break
-
-        stop = False
-        for m in page:
-            intro = (m.get("introductionDate") or "")[:10]
-            rn    = m.get("recordNumber")
-            if not rn:
-                continue
-            if intro > TODAY:
-                continue
-            if intro < YEAR_START:
-                stop = True
+            full = _elms_get(f"/matter/recordNumber/{rn}")
+        except Exception:
+            continue
+        for action in (full.get("actions") or []):
+            action_date_raw = (action.get("actionDate") or "")[:10]
+            action_by = action.get("actionByName") or ""
+            if (window_start <= action_date_raw <= window_end
+                    and body.lower() in action_by.lower()):
+                rns.add(rn)
                 break
-            rns.add(rn)
+        time.sleep(0.05)
 
-        if stop or len(page) < top:
-            break
-        skip += top
-        time.sleep(0.3)
-
-        if skip % 200 == 0:
-            print(f"  …{len(rns)} record numbers collected (skip={skip})", flush=True)
-
-    print(f"  → {len(rns)} matter record numbers from search", flush=True)
     return rns
 
 
@@ -301,85 +350,149 @@ def _already_cached_rns() -> set[str]:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--phase", type=int, choices=[1, 2, 3], default=None,
+                        help="Run only a specific phase (default: all)")
+    args = parser.parse_args()
+    run_all = args.phase is None
+
     _init_db()
     t0 = time.time()
 
+    from app.data_sources.elms import get_enriched_matter, _classify_routine
+    from app.db import _db as _get_db
+
     # ── Phase 1: Meetings ────────────────────────────────────────────────────
-    print("\n" + "=" * 60, flush=True)
-    print("PHASE 1 — 2026 meetings", flush=True)
-    print("=" * 60, flush=True)
+    p1_total = p1_items = p1_matters = p1_summaries = 0
+    if run_all or args.phase == 1:
+        print("\n" + "=" * 60, flush=True)
+        print("PHASE 1 — 2026 meetings", flush=True)
+        print("=" * 60, flush=True)
 
-    meetings = _fetch_2026_meetings()
-    total    = len(meetings)
-    p1_items = p1_matters = p1_summaries = 0
+        meetings  = _fetch_2026_meetings()
+        p1_total  = len(meetings)
+        for i, m in enumerate(meetings, 1):
+            body     = m.get("body") or ""
+            date_str = (m.get("date") or "")[:10]
+            print(f"\n[{i}/{p1_total}] {body} — {date_str}", flush=True)
+            stats = _process_one_meeting(m)
+            print(f"  items={stats['items']}  "
+                  f"matters={stats['matters_ok']}+{stats['matters_err']}err  "
+                  f"summary={'✓' if stats['summary'] else '–'}", flush=True)
+            for err in stats["errors"]:
+                print(f"  ⚠  {err}", flush=True)
+            p1_items     += stats["items"]
+            p1_matters   += stats["matters_ok"]
+            p1_summaries += int(stats["summary"])
+            time.sleep(0.15)
 
-    for i, m in enumerate(meetings, 1):
-        meeting_id = m.get("meetingId") or m.get("id")
-        body       = m.get("body") or ""
-        date_str   = (m.get("date") or "")[:10]
-        print(f"\n[{i}/{total}] {body} — {date_str}", flush=True)
+        print(f"\nPhase 1 done — {p1_total} meetings, {p1_items} items, "
+              f"{p1_matters} matters cached, {p1_summaries} summaries", flush=True)
 
-        stats = _process_one_meeting(m)
-        print(
-            f"  items={stats['items']}  "
-            f"matters={stats['matters_ok']}+{stats['matters_err']}err  "
-            f"summary={'✓' if stats['summary'] else '–'}",
-            flush=True,
-        )
-        for err in stats["errors"]:
-            print(f"  ⚠  {err}", flush=True)
+    # ── Phase 2: matters from published agendas (any introduction year) ──────
+    p2_ok = p2_err = 0
+    if run_all or args.phase == 2:
+        print("\n" + "=" * 60, flush=True)
+        print("PHASE 2 — matters on 2026 meeting agendas (any introduction year)", flush=True)
+        print("=" * 60, flush=True)
 
-        p1_items    += stats["items"]
-        p1_matters  += stats["matters_ok"]
-        p1_summaries += int(stats["summary"])
+        search_rns = _active_2026_matter_rns()
+        cached_rns = _already_cached_rns()
+        new_rns    = search_rns - cached_rns
+        print(f"  {len(search_rns)} on 2026 agendas, {len(cached_rns)} already cached, "
+              f"{len(new_rns)} to enrich", flush=True)
 
-        time.sleep(0.15)   # be polite between meetings
+        def _enrich(rn):
+            try:
+                get_enriched_matter(rn)
+                return True
+            except Exception:
+                return False
 
-    print(f"\nPhase 1 done — {total} meetings, {p1_items} items, "
-          f"{p1_matters} matters cached, {p1_summaries} summaries", flush=True)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = {pool.submit(_enrich, rn): rn for rn in new_rns}
+            for fut in as_completed(futures):
+                if fut.result():
+                    p2_ok += 1
+                else:
+                    p2_err += 1
+                done = p2_ok + p2_err
+                if done % 25 == 0 or done == len(new_rns):
+                    print(f"  {done}/{len(new_rns)} enriched ({p2_err} errors)", flush=True)
 
-    # ── Phase 2: Matters introduced in 2026 not yet cached ──────────────────
-    print("\n" + "=" * 60, flush=True)
-    print("PHASE 2 — 2026 matters (search)", flush=True)
-    print("=" * 60, flush=True)
+        print(f"\nPhase 2 done — {p2_ok} matters enriched, {p2_err} errors", flush=True)
 
-    search_rns = _search_2026_matter_rns()
-    cached_rns = _already_cached_rns()
-    new_rns    = search_rns - cached_rns
-    print(f"  {len(search_rns)} found, {len(cached_rns)} already cached, "
-          f"{len(new_rns)} to enrich", flush=True)
+    # ── Phase 3: empty-agenda meetings — ELMS search by committee name ────────
+    p3_meetings = p3_matters = p3_errors = 0
+    if run_all or args.phase == 3:
+        print("\n" + "=" * 60, flush=True)
+        print("PHASE 3 — empty-agenda meetings (ELMS search by committee)", flush=True)
+        print("=" * 60, flush=True)
 
-    from app.data_sources.elms import get_enriched_matter
+        def _enrich_and_cache_item(meeting_id, body, date_str, rn):
+            try:
+                matter       = get_enriched_matter(rn)
+                matter_type  = matter.get("type") or ""
+                matter_title = matter.get("title") or matter.get("shortTitle") or ""
+                action_name  = ""
+                for a in (matter.get("actions") or []):
+                    if body.lower() in (a.get("actionByName") or "").lower():
+                        action_name = a.get("actionName") or ""
+                        break
+                is_routine = _classify_routine(matter_type, matter_title)
+                with _get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """INSERT INTO meeting_items
+                               (meeting_id, record_number, matter_id, matter_title,
+                                matter_type, action_name, is_routine, item_order)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, 0)
+                           ON CONFLICT (meeting_id, record_number) DO UPDATE
+                             SET matter_title = EXCLUDED.matter_title,
+                                 matter_type  = EXCLUDED.matter_type,
+                                 action_name  = EXCLUDED.action_name,
+                                 is_routine   = EXCLUDED.is_routine,
+                                 cached_at    = NOW()""",
+                        (meeting_id, rn, matter.get("matterId"), matter_title,
+                         matter_type, action_name, is_routine),
+                    )
+                return True
+            except Exception as e:
+                logger.warning("Phase 3 enrich failed %s / %s: %s", meeting_id, rn, e)
+                return False
 
-    def _enrich(rn):
-        try:
-            get_enriched_matter(rn)
-            return True
-        except Exception:
-            return False
+        empty_meetings = _empty_agenda_meetings()
+        print(f"  {len(empty_meetings)} meetings with no published agenda items", flush=True)
 
-    ok_count = err_count = 0
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_enrich, rn): rn for rn in new_rns}
-        for fut in as_completed(futures):
-            if fut.result():
-                ok_count += 1
-            else:
-                err_count += 1
-            done = ok_count + err_count
-            if done % 25 == 0 or done == len(new_rns):
-                print(f"  {done}/{len(new_rns)} enriched ({err_count} errors)", flush=True)
+        for meeting_id, body, meeting_date in empty_meetings:
+            date_str = str(meeting_date)
+            print(f"\n  {body} — {date_str}", flush=True)
+            rns = _rns_for_empty_agenda_meeting(body, date_str)
+            print(f"    {len(rns)} matters found via ELMS search", flush=True)
+            if not rns:
+                continue
+            p3_meetings += 1
+            for rn in rns:
+                ok = _enrich_and_cache_item(meeting_id, body, date_str, rn)
+                if ok:
+                    p3_matters += 1
+                else:
+                    p3_errors += 1
+            time.sleep(0.1)
 
-    print(f"\nPhase 2 done — {ok_count} matters enriched, {err_count} errors", flush=True)
+        print(f"\nPhase 3 done — {p3_meetings} meetings recovered, "
+              f"{p3_matters} matters enriched, {p3_errors} errors", flush=True)
 
     # ── Summary ──────────────────────────────────────────────────────────────
     elapsed = time.time() - t0
     print("\n" + "=" * 60, flush=True)
     print(f"ALL DONE in {elapsed / 60:.1f} min", flush=True)
-    print(f"  Meetings processed : {total}", flush=True)
-    print(f"  Agenda items cached: {p1_items}", flush=True)
-    print(f"  Meeting summaries  : {p1_summaries}", flush=True)
-    print(f"  Matters enriched   : {p1_matters + ok_count}", flush=True)
+    if run_all or args.phase == 1:
+        print(f"  Meetings processed : {p1_total}", flush=True)
+        print(f"  Agenda items cached: {p1_items}", flush=True)
+        print(f"  Meeting summaries  : {p1_summaries}", flush=True)
+    print(f"  Matters enriched   : {p1_matters + p2_ok + p3_matters}", flush=True)
     print("=" * 60, flush=True)
 
 
