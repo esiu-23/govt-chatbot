@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 
 from ..data_sources.elms import (
-    _classify_routine,
+    _classify_routine, _s_variant,
     fetch_meeting_items, fetch_matter_detail_slim,
     get_meeting_document_summaries,
     meeting_summary, plain_language_titles,
@@ -259,12 +259,17 @@ def _items_from_cache(meeting_id: str) -> list[dict]:
 
 def _slim_from_cache(record_number: str) -> dict:
     """Read slim matter fields from matter_detail_cache; fall back to ELMS only on cache miss."""
+    s_number = _s_variant(record_number)
+    candidates = [record_number] if s_number == record_number else [record_number, s_number]
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT status, data FROM matter_detail_cache WHERE record_number = %s",
-                (record_number,),
+                """SELECT status, data FROM matter_detail_cache
+                   WHERE record_number = ANY(%s)
+                   ORDER BY (status IS NOT NULL) DESC, cached_at DESC
+                   LIMIT 1""",
+                (candidates,),
             )
             row = cur.fetchone()
             if row:
@@ -279,7 +284,13 @@ def _slim_from_cache(record_number: str) -> dict:
                 }
     except Exception as e:
         logger.warning("[meetings] slim cache read failed for %s: %s", record_number, e)
-    return fetch_matter_detail_slim(record_number)
+    # Try S-variant fallback on ELMS if canonical fails
+    try:
+        return fetch_matter_detail_slim(record_number)
+    except Exception:
+        if s_number != record_number:
+            return fetch_matter_detail_slim(s_number)
+        raise
 
 
 def _seed_known_meeting(m: dict) -> None:

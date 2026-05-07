@@ -23,6 +23,7 @@ from .data_sources.elms import (
     _COMMITTEE_CHAIRS,
     _attachment_summary,
     _elms_get,
+    _s_variant,
     fetch_matter_detail_slim,
     fetch_meeting_items,
     get_enriched_matter,
@@ -347,11 +348,20 @@ def _enrich_items_for_email(items: list[dict]) -> list[dict]:
         if not rn:
             continue
         item["plainLanguageTitle"] = pt.get(rn) or item.get("matterTitle", "")
-        # Read from matter_detail_cache first (pre-warmed); fall back to slim ELMS call
+        # Read from matter_detail_cache first (pre-warmed); fall back to slim ELMS call.
+        # Check both canonical and S-variant so substituted matters resolve correctly.
+        s_rn = _s_variant(rn)
+        candidates = [rn] if s_rn == rn else [rn, s_rn]
         try:
             with _db() as conn:
                 cur = conn.cursor()
-                cur.execute("SELECT data FROM matter_detail_cache WHERE record_number = %s", (rn,))
+                cur.execute(
+                    """SELECT data FROM matter_detail_cache
+                       WHERE record_number = ANY(%s)
+                       ORDER BY (status IS NOT NULL) DESC, cached_at DESC
+                       LIMIT 1""",
+                    (candidates,),
+                )
                 row = cur.fetchone()
             if row:
                 d = row[0] if isinstance(row[0], dict) else _json.loads(row[0])
@@ -361,7 +371,10 @@ def _enrich_items_for_email(items: list[dict]) -> list[dict]:
                     "introductionDate": d.get("introductionDate"),
                 })
             else:
-                slim = fetch_matter_detail_slim(rn)
+                try:
+                    slim = fetch_matter_detail_slim(rn)
+                except Exception:
+                    slim = fetch_matter_detail_slim(s_rn) if s_rn != rn else {}
                 item.update({
                     "status":          slim.get("status"),
                     "controllingBody": slim.get("controllingBody"),
