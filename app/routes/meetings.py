@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 
 from ..data_sources.elms import (
+    _classify_routine,
     fetch_meeting_items, fetch_matter_detail_slim,
     get_meeting_document_summaries,
     meeting_summary, plain_language_titles,
@@ -97,11 +98,28 @@ def meeting_matters(meeting_id):
         offset = max(0, int(request.args.get("offset", 0)))
         limit  = min(50, max(1, int(request.args.get("limit", 10))))
 
-        items = _items_from_cache(meeting_id) or fetch_meeting_items(meeting_id)
+        cached = _items_from_cache(meeting_id)
+        if cached:
+            items = cached
+            # Refresh in background — picks up any items added to ELMS after last cache write
+            threading.Thread(
+                target=_refresh_meeting_items, args=(meeting_id,), daemon=True
+            ).start()
+        else:
+            items = fetch_meeting_items(meeting_id)
+            if items:
+                _write_items_to_db(meeting_id, items)
+            else:
+                # ELMS agenda endpoint has no published items for this meeting.
+                # Reconstruct from matter_detail_cache by matching action date + committee.
+                items = _reconstruct_items_from_actions(meeting_id)
+                if items:
+                    _write_items_to_db(meeting_id, items)
         valid_items = [i for i in items if i.get("recordNumber")]
 
         if not valid_items:
             docs = get_meeting_document_summaries(meeting_id)
+            summary = _get_meeting_summary(meeting_id, items)
             return jsonify({
                 "matters": [],
                 "total": 0,
@@ -109,6 +127,7 @@ def meeting_matters(meeting_id):
                 "limit": limit,
                 "hasNoMatters": True,
                 "meetingDocuments": docs,
+                "meetingSummary": summary,
             })
 
         sorted_items = (
@@ -119,7 +138,12 @@ def meeting_matters(meeting_id):
         page  = sorted_items[offset: offset + limit]
 
         detail_map = {}
-        with ThreadPoolExecutor(max_workers=5) as pool:
+        docs_future = None
+        summary_future = None
+        with ThreadPoolExecutor(max_workers=7) as pool:
+            if offset == 0:
+                docs_future    = pool.submit(get_meeting_document_summaries, meeting_id)
+                summary_future = pool.submit(_get_meeting_summary, meeting_id, items)
             futures = {
                 pool.submit(_slim_from_cache, i["recordNumber"]): i["recordNumber"]
                 for i in page
@@ -127,6 +151,8 @@ def meeting_matters(meeting_id):
             for fut in as_completed(futures):
                 d = fut.result()
                 detail_map[d["recordNumber"]] = d
+            docs    = docs_future.result()    if docs_future    else []
+            summary = summary_future.result() if summary_future else None
 
         matter_stubs = [
             {"recordNumber": i.get("recordNumber"), "title": i.get("matterTitle")}
@@ -150,7 +176,11 @@ def meeting_matters(meeting_id):
                 "actionName": i.get("actionName"),
                 "isRoutine": i.get("isRoutine", False),
             })
-        return jsonify({"matters": slim, "total": total, "offset": offset, "limit": limit})
+        payload = {"matters": slim, "total": total, "offset": offset, "limit": limit}
+        if offset == 0:
+            payload["meetingDocuments"] = docs
+            payload["meetingSummary"] = summary
+        return jsonify(payload)
     except Exception as e:
         logger.error("[meetings] matters error %s: %s", meeting_id, e)
         return jsonify({"matters": [], "total": 0, "offset": 0, "limit": 10})
@@ -311,6 +341,103 @@ def _generate_missing_summaries(meetings: list[dict]) -> None:
     _cache.pop("all", None)
 
 
+def _reconstruct_items_from_actions(meeting_id: str) -> list[dict]:
+    """For meetings where ELMS publishes no agenda items, find matters by matching
+    action date + committee body from matter_detail_cache."""
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT body, meeting_date FROM known_meetings WHERE meeting_id = %s",
+                (meeting_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return []
+            body, meeting_date = row
+            date_str = str(meeting_date)  # already a date object from psycopg2
+
+            cur.execute(
+                """SELECT record_number, data
+                   FROM matter_detail_cache
+                   WHERE EXISTS (
+                     SELECT 1 FROM jsonb_array_elements(data->'actions') AS a
+                     WHERE (a->>'actionDate')::date
+                             BETWEEN (%s::date - INTERVAL '1 day')
+                                 AND (%s::date + INTERVAL '1 day')
+                       AND (a->>'actionByName') ILIKE %s
+                   )""",
+                (date_str, date_str, f"%{body}%"),
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.warning("[meetings] reconstruct_items_from_actions %s: %s", meeting_id, e)
+        return []
+
+    items = []
+    for rn, data in rows:
+        d = data if isinstance(data, dict) else {}
+        matter_type = d.get("type") or ""
+        matter_title = d.get("title") or d.get("shortTitle") or ""
+        # Find the closest matching action for actionName
+        action_name = ""
+        for a in (d.get("actions") or []):
+            a_date = (a.get("actionDate") or "")[:10]
+            a_body = a.get("actionByName") or ""
+            if body.lower() in a_body.lower():
+                action_name = a.get("actionName") or ""
+                break
+        items.append({
+            "recordNumber": rn,
+            "matterId": d.get("matterId"),
+            "matterTitle": matter_title,
+            "matterType": matter_type,
+            "actionName": action_name,
+            "isRoutine": _classify_routine(matter_type, matter_title),
+        })
+    return items
+
+
+def _write_items_to_db(meeting_id: str, items: list[dict]) -> None:
+    """Upsert agenda items into meeting_items — safe to call multiple times."""
+    if not items:
+        return
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            for idx, item in enumerate(items):
+                rn = item.get("recordNumber")
+                if not rn:
+                    continue
+                cur.execute(
+                    """INSERT INTO meeting_items
+                           (meeting_id, record_number, matter_id, matter_title,
+                            matter_type, action_name, is_routine, item_order)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (meeting_id, record_number) DO UPDATE
+                         SET matter_title = EXCLUDED.matter_title,
+                             matter_type  = EXCLUDED.matter_type,
+                             action_name  = EXCLUDED.action_name,
+                             is_routine   = EXCLUDED.is_routine,
+                             item_order   = EXCLUDED.item_order,
+                             cached_at    = NOW()""",
+                    (meeting_id, rn, item.get("matterId"), item.get("matterTitle"),
+                     item.get("matterType"), item.get("actionName"),
+                     bool(item.get("isRoutine", False)), idx),
+                )
+    except Exception as e:
+        logger.warning("[meetings] write_items_to_db %s: %s", meeting_id, e)
+
+
+def _refresh_meeting_items(meeting_id: str) -> None:
+    """Re-fetch meeting items from ELMS and upsert — adds items missed by the initial cache write."""
+    try:
+        items = fetch_meeting_items(meeting_id)
+        _write_items_to_db(meeting_id, items)
+    except Exception as e:
+        logger.warning("[meetings] refresh_meeting_items %s: %s", meeting_id, e)
+
+
 def _elms_get_meetings(top: int = 100):
     from ..data_sources.elms import _elms_get
     return _elms_get("/meeting-agenda", {"top": top, "orderby": "date desc"})
@@ -369,3 +496,27 @@ def _enrich_meeting(m: dict):
         "nonRoutineCount": non_routine_count,
         "totalCount": len(items),
     }
+
+
+def _get_meeting_meta(meeting_id: str) -> tuple[str, str]:
+    """Return (body, date_str) from known_meetings, or empty strings if not found."""
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT body, meeting_date FROM known_meetings WHERE meeting_id = %s",
+                (meeting_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                return (row[0] or "", (row[1] or "")[:10])
+    except Exception:
+        pass
+    return ("", "")
+
+
+def _get_meeting_summary(meeting_id: str, items: list) -> str | None:
+    """Return meeting summary, generating via Claude if not yet cached."""
+    body, date_str = _get_meeting_meta(meeting_id)
+    result = meeting_summary(meeting_id, body, date_str, items)
+    return result or None

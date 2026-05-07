@@ -26,6 +26,8 @@ from .data_sources.elms import (
     fetch_matter_detail_slim,
     fetch_meeting_items,
     get_enriched_matter,
+    get_meeting_document_summaries,
+    link_agenda_matters,
     meeting_summary,
     plain_language_titles,
 )
@@ -166,10 +168,19 @@ def check_and_send_meeting_emails() -> None:
                 enriched      = _enrich_items_for_email(items)
                 routine_count = sum(1 for i in items if i.get("isRoutine"))
                 _dispatch_meeting_emails("agenda", meeting_id, body, meeting_date,
-                                         enriched, routine_count, location, "")
-                _mark_agenda_sent(meeting_id, body, meeting_date, elms_status,
-                                  len(non_routine), routine_count, location)
-                logger.info("[scheduler] agenda email sent: %s %s", body, meeting_date)
+                                         enriched, routine_count, location, "",
+                                         meeting_docs=None)
+            else:
+                # No matters on the agenda — send with meeting-level documents so
+                # subscribers can still see what is planned.
+                meeting_docs  = get_meeting_document_summaries(meeting_id)
+                routine_count = sum(1 for i in items if i.get("isRoutine"))
+                _dispatch_meeting_emails("agenda", meeting_id, body, meeting_date,
+                                         [], routine_count, location, "",
+                                         meeting_docs=meeting_docs)
+            _mark_agenda_sent(meeting_id, body, meeting_date, elms_status,
+                              len(non_routine), routine_count, location)
+            logger.info("[scheduler] agenda email sent: %s %s", body, meeting_date)
 
         # ── Summary ──────────────────────────────────────────────────────────
         if not state.get("summary_sent_at") and is_past:
@@ -179,8 +190,10 @@ def check_and_send_meeting_emails() -> None:
             summary_text  = meeting_summary(meeting_id, body, meeting_date, items)
             enriched      = _enrich_items_for_email(items)
             routine_count = sum(1 for i in items if i.get("isRoutine"))
+            meeting_docs  = get_meeting_document_summaries(meeting_id) if not non_routine else None
             _dispatch_meeting_emails("summary", meeting_id, body, meeting_date,
-                                     enriched, routine_count, "", summary_text)
+                                     enriched, routine_count, "", summary_text,
+                                     meeting_docs=meeting_docs)
             _mark_summary_sent(meeting_id, body, meeting_date, elms_status,
                                len(non_routine), routine_count, location)
             logger.info("[scheduler] summary email sent: %s %s", body, meeting_date)
@@ -446,6 +459,7 @@ def _dispatch_meeting_emails(
     routine_count: int,
     location: str,
     summary_text: str,
+    meeting_docs: "list[dict] | None" = None,
 ) -> None:
     subscribers = _get_subscribers(body)
     for email_addr in subscribers:
@@ -453,9 +467,15 @@ def _dispatch_meeting_emails(
             continue
         unsub_url = _unsub_url_for(email_addr)
         if email_type == "agenda":
-            subj, html = render_agenda_email(body, date_str, location, enriched, routine_count, unsub_url)
+            subj, html = render_agenda_email(
+                body, date_str, location, enriched, routine_count, unsub_url,
+                meeting_id=meeting_id, meeting_docs=meeting_docs,
+            )
         else:
-            subj, html = render_summary_email(body, date_str, summary_text, enriched, routine_count, unsub_url)
+            subj, html = render_summary_email(
+                body, date_str, summary_text, enriched, routine_count, unsub_url,
+                meeting_id=meeting_id, meeting_docs=meeting_docs,
+            )
         if send_email(email_addr, subj, html):
             _log_sent(email_addr, meeting_id, email_type)
 

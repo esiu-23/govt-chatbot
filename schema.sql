@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS matter_detail_cache (
 
 -- Migration for existing deployments:
 -- (new table — just run the CREATE above)
+-- To backfill actionByName into existing legislativeTracker steps (no schema change needed):
+--   python backfill_action_descriptions.py
 
 -- ---------------------------------------------------------------------------
 -- Email subscriptions

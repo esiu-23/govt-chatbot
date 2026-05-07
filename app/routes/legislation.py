@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 
 from flask import Blueprint, jsonify, request
 
@@ -7,6 +8,8 @@ from ..data_sources.elms import (
     _elms_get, _is_boilerplate, claude_rerank, get_enriched_matter, plain_language_titles,
 )
 from ..db import _db
+
+_RECORD_NUMBER_RE = re.compile(r'^[A-Za-z]{1,2}\d{4}-\d+$')
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("legislation", __name__)
@@ -85,6 +88,25 @@ def legislation_search():
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify({"matters": [], "count": 0})
+
+    if _RECORD_NUMBER_RE.match(q):
+        try:
+            matter = get_enriched_matter(q.upper())
+            pt = plain_language_titles([matter])
+            slim = [{
+                "recordNumber": matter.get("recordNumber"),
+                "title": matter.get("title"),
+                "plainLanguageTitle": pt.get(matter.get("recordNumber")),
+                "status": matter.get("status"),
+                "substatus": matter.get("subStatus") or matter.get("substatus"),
+                "type": matter.get("type"),
+                "introductionDate": matter.get("introductionDate"),
+                "controllingBody": matter.get("controllingBody"),
+            }]
+            return jsonify({"matters": slim, "count": 1})
+        except Exception as e:
+            logger.warning("[legislation] direct record lookup failed for %s: %s", q, e)
+
     try:
         raw = _elms_get("/search", {"search": q, "top": 25})
         matters = raw.get("value", raw.get("data", []))

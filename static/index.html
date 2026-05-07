@@ -718,6 +718,9 @@
     .leg-meeting-header { font-weight: 700; font-size: 0.95rem; color: #1a202c; margin-bottom: 4px; }
     .leg-meeting-body { font-size: 0.83rem; color: #718096; margin-bottom: 6px; }
     .leg-meeting-summary { font-size: 0.88rem; color: #4a5568; line-height: 1.55; margin-bottom: 6px; }
+    .leg-meeting-context-card { background: #f8faff; border: 1px solid #c3d3f7; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+    .leg-meeting-context-summary { font-size: 0.88rem; color: #2d3748; line-height: 1.6; margin: 0; }
+
     .leg-meeting-counts { font-size: 0.78rem; color: #718096; }
     .leg-meeting-counts .nr { color: #003F87; font-weight: 600; }
     .leg-no-matters-notice { font-size: 0.9rem; color: #4a5568; background: #f0f4ff; border: 1px solid #c3d3f7; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
@@ -890,6 +893,10 @@
       font-size: 0.65rem; font-weight: 600; color: #2d3748; text-align: center;
       margin-top: 3px; max-width: 80px; line-height: 1.3;
     }
+    .leg-tracker-action-by {
+      font-size: 0.62rem; color: #4a5568; text-align: center;
+      margin-top: 2px; max-width: 80px; line-height: 1.3;
+    }
     .leg-tracker-step--complete .leg-tracker-circle { background: #276749; border-color: #276749; color: #fff; }
     .leg-tracker-step--complete::after { background: #276749; }
     .leg-tracker-step--complete .leg-tracker-label { color: #276749; }
@@ -913,7 +920,7 @@
       .leg-tracker-step::after { top: 36px; left: 17px; width: 3px; height: calc(100% - 20px); }
       .leg-tracker-circle { flex-shrink: 0; }
       .leg-tracker-label { text-align: left; max-width: none; margin-top: 0; font-size: 0.8rem; }
-      .leg-tracker-sublabel, .leg-tracker-date, .leg-tracker-action { text-align: left; max-width: none; }
+      .leg-tracker-sublabel, .leg-tracker-date, .leg-tracker-action, .leg-tracker-action-by { text-align: left; max-width: none; }
     }
   </style>
 </head>
@@ -1704,12 +1711,14 @@
   let legActiveMeetingId = null;
   let legMeetingOffset = 0;
   let legMeetingTotal = 0;
+  let legMeetingContextHtml = "";
   const LEG_PAGE_SIZE = 10;
 
   function showLegResults() {
     document.getElementById("leg-search-view").style.display = "";
     document.getElementById("leg-detail-view").style.display = "none";
     document.getElementById("leg-query").value = "";
+    _clearMeetingContext();
   }
 
   function showMeetings() {
@@ -1815,7 +1824,7 @@
     }
     resultsEl.innerHTML = meetings.map(m => {
       const date = m.date
-        ? new Date(m.date + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+        ? new Date(m.date.slice(0,10) + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
         : "";
       const label = `${escLeg(m.body || "Meeting")} — ${date}`;
       const counts = m.totalCount
@@ -1878,21 +1887,10 @@
       .then(r => r.json())
       .then(data => {
         clearSkelTimer();
+        legMeetingContextHtml = _meetingContextHtml(data);
         if (data.hasNoMatters) {
-          let html = '<div class="leg-no-matters-notice">No specific matters were voted on at this meeting.</div>';
-          const docs = data.meetingDocuments || [];
-          if (docs.length) {
-            html += '<div class="leg-meeting-docs">';
-            html += '<div class="leg-meeting-docs-label">Meeting documents</div>';
-            docs.forEach(d => {
-              html += '<div class="leg-meeting-doc-card">';
-              html += `<a class="leg-meeting-doc-name" href="${escLeg(d.url)}" target="_blank" rel="noopener">${escLeg(d.name)}</a>`;
-              if (d.summary) html += `<p class="leg-meeting-doc-summary">${escLeg(d.summary)}</p>`;
-              html += '</div>';
-            });
-            html += '</div>';
-          }
-          resultsEl.innerHTML = html;
+          resultsEl.innerHTML = legMeetingContextHtml
+            + '<div class="leg-no-matters-notice">No specific matters were voted on at this meeting.</div>';
           document.getElementById("leg-browse-link").style.display = "none";
           document.getElementById("leg-see-more").style.display = "none";
           return;
@@ -1900,7 +1898,7 @@
         legCurrentResults = data.matters || [];
         legMeetingOffset  = legCurrentResults.length;
         legMeetingTotal   = data.total || 0;
-        renderResults(legCurrentResults);
+        resultsEl.innerHTML = legMeetingContextHtml + legCurrentResults.map(_matterCard).join("");
         document.getElementById("leg-browse-link").style.display = "none";
         _updateSeeMore();
       })
@@ -1922,9 +1920,8 @@
         legCurrentResults = legCurrentResults.concat(more);
         legMeetingOffset += more.length;
         legMeetingTotal   = data.total || 0;
-        // Append new cards without re-rendering the whole list
         const resultsEl = document.getElementById("leg-results");
-        resultsEl.innerHTML = legCurrentResults.map(m => _matterCard(m)).join("");
+        resultsEl.innerHTML = legMeetingContextHtml + legCurrentResults.map(m => _matterCard(m)).join("");
         btn.disabled = false;
         _updateSeeMore();
       })
@@ -1941,6 +1938,7 @@
     document.getElementById("leg-query").value = "";
     legResultSource = "search";
     legActiveMeetingId = null;
+    _clearMeetingContext();
     document.getElementById("leg-results-back-btn").style.display = "none";
     document.getElementById("leg-see-more").style.display = "none";
     const btn       = document.getElementById("leg-search-btn");
@@ -1978,7 +1976,7 @@
     let displayStatus = /^final$/i.test(status) && rawSub ? rawSub : status;
     let statusClass;
     if (/in committee/i.test(displayStatus)) {
-      const intro = m.introductionDate ? new Date(m.introductionDate + "T12:00:00") : null;
+      const intro = m.introductionDate ? new Date(m.introductionDate.slice(0,10) + "T12:00:00") : null;
       const daysSince = intro ? (Date.now() - intro.getTime()) / 86400000 : 0;
       if (daysSince > 180) {
         displayStatus = "In Committee — Stale";
@@ -1993,7 +1991,7 @@
                   : "leg-status-other";
     }
     const date = m.introductionDate
-      ? new Date(m.introductionDate + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+      ? new Date(m.introductionDate.slice(0,10) + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
       : "";
     const body     = m.controllingBody || "";
     const subtitle = m.plainLanguageTitle && m.plainLanguageTitle !== m.title
@@ -2012,6 +2010,33 @@
         ${date ? ` · ${date}` : ""}${body ? ` · ${escLeg(body)}` : ""}
       </div>
     </div>`;
+  }
+
+  function _meetingContextHtml(data) {
+    const summary = data.meetingSummary;
+    const docs = data.meetingDocuments || [];
+    if (!summary && !docs.length) return "";
+
+    let inner = "";
+    if (summary) {
+      inner += `<p class="leg-meeting-context-summary">${escLeg(summary)}<span class="ai-tooltip-icon" style="margin-left:7px;" data-tip="This summary was auto-generated by AI based on the meeting agenda items. Always verify with official sources.">i</span></p>`;
+    }
+    if (docs.length) {
+      inner += '<div class="leg-meeting-docs" style="margin-top:12px;">';
+      inner += '<div class="leg-meeting-docs-label">Meeting documents</div>';
+      docs.forEach(d => {
+        inner += '<div class="leg-meeting-doc-card">';
+        inner += `<a class="leg-meeting-doc-name" href="${escLeg(d.url)}" target="_blank" rel="noopener">${escLeg(d.name)}</a>`;
+        if (d.summary) inner += `<p class="leg-meeting-doc-summary">${escLeg(d.summary)}</p>`;
+        inner += '</div>';
+      });
+      inner += '</div>';
+    }
+    return `<div class="leg-meeting-context-card">${inner}</div>`;
+  }
+
+  function _clearMeetingContext() {
+    legMeetingContextHtml = "";
   }
 
   function renderResults(matters) {
@@ -2064,7 +2089,7 @@
     const rawSub    = (matter.substatus || "").replace(/^\d+-/, "");
     let displayStatus = /^final$/i.test(rawStatus) && rawSub ? rawSub : rawStatus;
     if (/in committee/i.test(displayStatus)) {
-      const intro = matter.introductionDate ? new Date(matter.introductionDate + "T12:00:00") : null;
+      const intro = matter.introductionDate ? new Date(matter.introductionDate.slice(0,10) + "T12:00:00") : null;
       const daysSince = intro ? (Date.now() - intro.getTime()) / 86400000 : 0;
       displayStatus = daysSince > 180 ? "In Committee — Stale" : "In Committee — Active";
     }
@@ -2073,7 +2098,7 @@
     const sponsor = matter.filingSponsor || (matter.sponsors && matter.sponsors[0]) || "";
     const body    = matter.controllingBody || "";
     const intro   = matter.introductionDate
-      ? new Date(matter.introductionDate + "T12:00:00").toLocaleDateString("en-US", {month:"long", day:"numeric", year:"numeric"})
+      ? new Date(matter.introductionDate.slice(0,10) + "T12:00:00").toLocaleDateString("en-US", {month:"long", day:"numeric", year:"numeric"})
       : "";
 
 
@@ -2165,7 +2190,7 @@
       const stepsHtml = steps.map((step, i) => {
         const icon = _trackerIcon(step.status, i + 1);
         const dateStr = step.date
-          ? new Date(step.date + "T12:00:00").toLocaleDateString("en-US",
+          ? new Date(step.date.slice(0,10) + "T12:00:00").toLocaleDateString("en-US",
               { month: "short", day: "numeric", year: "numeric" })
           : "";
         let sublabel = step.sublabel;
@@ -2178,6 +2203,9 @@
         const actionNameHtml = showAction
           ? `<div class="leg-tracker-action">${escLeg(step.actionName)}</div>`
           : "";
+        const actionByHtml = showAction && step.actionByName
+          ? `<div class="leg-tracker-action-by">${escLeg(step.actionByName)}</div>`
+          : "";
 
         return `<div class="leg-tracker-step leg-tracker-step--${escLeg(step.status)}"
                      role="listitem"
@@ -2186,6 +2214,7 @@
           <div class="leg-tracker-label">${escLeg(step.label)}</div>
           <div class="leg-tracker-sublabel">${escLeg(sublabel)}</div>
           ${actionNameHtml}
+          ${actionByHtml}
           ${dateStr ? `<div class="leg-tracker-date">${escLeg(dateStr)}</div>` : ""}
         </div>`;
       }).join("");
@@ -2222,9 +2251,9 @@
       ${subtitleHtml}
       <div class="leg-matter-meta">${metaParts}</div>
       ${trackBtn}
+      ${trackerHtml}
       ${reportFilesHtml}
       ${aiSummaryHtml}
-      ${trackerHtml}
       ${whatHtml}
     `;
   }
@@ -2396,8 +2425,11 @@
   }
   // ── Query-param deep link: /app?matter=O-2025-1234 (used in email links) ──
   (function () {
-    const m = new URLSearchParams(window.location.search).get("matter");
+    const params = new URLSearchParams(window.location.search);
+    const m = params.get("matter");
+    const mid = params.get("meeting");
     if (m) { switchTab("legislation"); loadMatter(m); }
+    else if (mid) { switchTab("legislation"); loadMeetingMatters(mid, "Meeting"); }
   })();
 
   // ── Illinois Legislation tab ─────────────────────────────────────────────
@@ -2419,7 +2451,7 @@
                     : /vetoed|failed|dead/i.test(status) ? "leg-status-other"
                     : "leg-status-active";
     const date = b.last_action_date
-      ? new Date(b.last_action_date + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+      ? new Date(b.last_action_date.slice(0,10) + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
       : "";
     const subtitle = b.plainLanguageTitle && b.plainLanguageTitle !== b.title
       ? `<div class="leg-card-subtitle">${escIl(b.plainLanguageTitle)}</div>`
