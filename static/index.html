@@ -2177,12 +2177,12 @@
         <div class="ai-summary-text">This piece of legislation is ${article} ${escLeg(type)}. ${escLeg(stripMd(matter.typeDescription))}</div>
       </div>`);
     }
-    if (matter.statusContext) {
-      aiItems.push(`<div class="ai-summary-item">
-        <div class="ai-summary-label">Status</div>
-        <div class="ai-summary-text">${escLeg(stripMd(matter.statusContext))}</div>
-      </div>`);
-    }
+    // if (matter.statusContext) {
+    //   aiItems.push(`<div class="ai-summary-item">
+    //     <div class="ai-summary-label">Status</div>
+    //     <div class="ai-summary-text">${escLeg(stripMd(matter.statusContext))}</div>
+    //   </div>`);
+    // }
 
     // Paired documents + summaries under "Legislation Summary"
     const attachments = (matter.matterAttachments || []).filter(f => f.path || f.url);
