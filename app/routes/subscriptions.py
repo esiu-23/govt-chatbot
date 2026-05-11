@@ -5,7 +5,7 @@ import secrets
 
 from flask import Blueprint, jsonify, make_response, request
 
-from ..data_sources.elms import _COMMITTEE_CHAIRS
+from ..data_sources.elms import _COMMITTEE_CHAIRS, base_number
 from ..db import _db
 from ..email.sender import send_email
 from ..email.templates import BASE_URL
@@ -82,6 +82,7 @@ def subscribe_matters():
     if not record_number:
         return jsonify({"error": "record_number required"}), 400
 
+    canonical_id = base_number(record_number)
     confirm_token = secrets.token_urlsafe(24)
     unsub_token = secrets.token_urlsafe(24)
 
@@ -89,15 +90,15 @@ def subscribe_matters():
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
-                """INSERT INTO matter_subscriptions (email, record_number, confirm_token, unsub_token)
-                   VALUES (%s, %s, %s, %s)
-                   ON CONFLICT (email, record_number) DO NOTHING""",
-                (email, record_number, confirm_token, unsub_token),
+                """INSERT INTO matter_subscriptions (email, record_number, canonical_id, confirm_token, unsub_token)
+                   VALUES (%s, %s, %s, %s, %s)
+                   ON CONFLICT (email, canonical_id) DO NOTHING""",
+                (email, record_number, canonical_id, confirm_token, unsub_token),
             )
             if cur.rowcount == 0:
                 cur.execute(
-                    "SELECT confirmed, confirm_token FROM matter_subscriptions WHERE email=%s AND record_number=%s",
-                    (email, record_number),
+                    "SELECT confirmed, confirm_token FROM matter_subscriptions WHERE email=%s AND canonical_id=%s",
+                    (email, canonical_id),
                 )
                 row = cur.fetchone()
                 if row and row[0]:

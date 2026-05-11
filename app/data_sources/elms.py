@@ -383,6 +383,18 @@ def _next_meeting_for_body(body: str) -> dict | None:
     return result
 
 
+def base_number(record_number: str) -> str:
+    """Strip the leading alpha prefix from a record number, returning the numeric base.
+
+    O2026-0024166, F2026-0024166, SO2026-0024166 all return '2026-0024166'.
+    This lets callers treat different-prefix variants of the same matter as identical.
+    """
+    i = 0
+    while i < len(record_number) and record_number[i].isalpha():
+        i += 1
+    return record_number[i:]
+
+
 def _s_variant(record_number: str) -> str:
     """Return the substituted-matter variant of a record number.
 
@@ -396,6 +408,21 @@ def _s_variant(record_number: str) -> str:
     return "S" + record_number
 
 
+def _merge_variant_actions(variants: list[dict]) -> list[dict]:
+    """Return a deduplicated, date-sorted union of actions from all matter variants."""
+    seen: set[str] = set()
+    merged: list[dict] = []
+    for v in variants:
+        for action in (v.get("actions") or []):
+            key = str(action.get("id") or
+                      f"{action.get('actionDate')}|{action.get('actionName')}|{action.get('actionByName')}")
+            if key not in seen:
+                seen.add(key)
+                merged.append(action)
+    merged.sort(key=lambda a: (a.get("actionDate") or ""))
+    return merged
+
+
 def get_enriched_matter(record_number: str) -> dict:
     """Return enriched matter data, reading from matter_detail_cache before hitting ELMS.
 
@@ -405,28 +432,38 @@ def get_enriched_matter(record_number: str) -> dict:
     not between user loads.  A cache miss only fires for matters the scheduler
     has never seen.
 
-    Both the canonical record number and its substituted S-variant are checked in
-    the DB so that either form resolves to cached data.
+    All prefix variants sharing the same base number (e.g., O2026-0024166 and
+    F2026-0024166) are fetched from cache and their action histories merged, so
+    the returned matter shows the full legislative history regardless of which
+    prefix the caller used.
     """
+    base = base_number(record_number)
     s_number = _s_variant(record_number)
-    candidates = [record_number] if s_number == record_number else [record_number, s_number]
 
+    variants: list[dict] = []
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
                 """SELECT data FROM matter_detail_cache
-                   WHERE record_number = ANY(%s)
-                   ORDER BY (status IS NOT NULL) DESC, cached_at DESC
-                   LIMIT 1""",
-                (candidates,),
+                   WHERE record_number LIKE %s
+                   ORDER BY (status IS NOT NULL) DESC, cached_at DESC""",
+                (f"%{base}",),
             )
-            row = cur.fetchone()
-            if row:
+            for row in cur.fetchall():
                 data = row[0]
-                return data if isinstance(data, dict) else json.loads(data)
+                variants.append(data if isinstance(data, dict) else json.loads(data))
     except Exception as e:
         logger.warning("[elms] matter_detail_cache read error: %s", e)
+
+    if variants:
+        primary = dict(variants[0])
+        if len(variants) > 1:
+            merged = _merge_variant_actions(variants)
+            if merged != primary.get("actions"):
+                primary["actions"] = merged
+                primary["legislativeTracker"] = _build_legislative_tracker(primary)
+        return primary
 
     try:
         matter = _elms_get(f"/matter/recordNumber/{record_number}")
