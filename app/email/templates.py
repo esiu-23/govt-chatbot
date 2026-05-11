@@ -193,10 +193,11 @@ def render_agenda_email(
     unsub_url: str,
     meeting_id: str = "",
     meeting_docs: list[dict] | None = None,
+    public_comment_deadline: str = "",
 ) -> tuple[str, str]:
     """Return (subject, html) for a pre-meeting agenda email."""
     fmt_date = _fmt_date(date_str)
-    subject = f"{body} Meeting Agenda — {fmt_date}"
+    subject = f"Agenda Published: {body} Meeting on {fmt_date}"
 
     non_routine = [i for i in items if not i.get("isRoutine", False)]
     display = non_routine[:8]
@@ -204,6 +205,16 @@ def render_agenda_email(
 
     loc_html = f'<p class="meta-row"><strong>Where:</strong> {_h(location)}</p>' if location else ""
     meeting_link = _meeting_link_html(meeting_id, "View this meeting at thegovernmentandme.tools")
+
+    comment_html = ""
+    if public_comment_deadline:
+        comment_html = f"""
+<div class="overview" style="margin-top:16px;margin-bottom:24px">
+  <strong>Want to weigh in?</strong> Public comments are due by {_h(public_comment_deadline)}.<br><br>
+  Submit your comment online at the City Clerk's ELMS portal:<br>
+  <a href="https://chicityclerkelms.chicago.gov/Meetings/" style="color:#1a6aad;">
+    chicityclerkelms.chicago.gov/Meetings →</a>
+</div>"""
 
     if non_routine:
         total = len(non_routine) + routine_count
@@ -225,13 +236,14 @@ def render_agenda_email(
         agenda_section = _meeting_docs_html(meeting_docs or [])
 
     body_html = f"""
-<p class="section-label">When &amp; where</p>
+<p class="section-label">Meeting coming up</p>
 <p class="meta-row"><strong>When:</strong> {_h(fmt_date)}</p>
 {loc_html}
+{comment_html}
 {agenda_section}
 <div style="margin-top:20px;font-size:13px">{meeting_link}</div>"""
 
-    return subject, _shell(body, body, f"Meeting Agenda — {fmt_date}", body_html, unsub_url)
+    return subject, _shell("Upcoming Meeting", body, f"Agenda Published — {fmt_date}", body_html, unsub_url)
 
 
 def render_new_meeting_email(
