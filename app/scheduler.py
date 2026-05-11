@@ -218,7 +218,7 @@ def check_and_send_matter_updates() -> None:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT id, email, record_number, last_status, unsub_token "
+                "SELECT id, email, record_number, canonical_id, last_status, unsub_token "
                 "FROM matter_subscriptions WHERE confirmed=TRUE"
             )
             rows = cur.fetchall()
@@ -226,13 +226,29 @@ def check_and_send_matter_updates() -> None:
         logger.error("[scheduler] matter_subscriptions fetch: %s", e)
         return
 
-    for row_id, email_addr, record_number, last_status, unsub_token in rows:
+    for row_id, email_addr, record_number, canonical_id, last_status, unsub_token in rows:
         try:
             slim = fetch_matter_detail_slim(record_number)
         except Exception:
             continue
 
         new_status = slim.get("status") or ""
+        # If the stored variant returned no status, check other prefix variants via cache.
+        if not new_status and canonical_id:
+            try:
+                with _db() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """SELECT status FROM matter_detail_cache
+                           WHERE record_number LIKE %s AND status IS NOT NULL
+                           ORDER BY cached_at DESC LIMIT 1""",
+                        (f"%{canonical_id}",),
+                    )
+                    alt = cur.fetchone()
+                    if alt:
+                        new_status = alt[0] or ""
+            except Exception:
+                pass
         if not new_status or new_status == last_status:
             if last_status is None and new_status:
                 _update_last_status(row_id, new_status)
