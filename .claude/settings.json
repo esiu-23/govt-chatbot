@@ -4,7 +4,19 @@
       "Bash(curl -s *)",
       "Bash(curl -sv *)",
       "Bash(curl -v *)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(sqlite3 govt_data.db \"SELECT DISTINCT status FROM legislation LIMIT 30;\")",
+      "Bash(sqlite3 govt_data.db \".tables\")",
+      "Bash(sqlite3 replica.db \".tables\")",
+      "Bash(sqlite3 replica.db \"SELECT DISTINCT status FROM legislation LIMIT 30;\")",
+      "Bash(sqlite3 replica.db \".schema\")",
+      "Bash(python -c \"from app.data_sources.elms import meeting_summary, link_agenda_matters, _fetch_agenda_text, _extract_matter_ids_from_text; print\\('imports OK'\\)\")",
+      "Bash(python -c \"from app.scheduler import sync_meeting_schedule, check_and_send_meeting_emails; print\\('scheduler imports OK'\\)\")",
+      "Bash(python -c \"from app.data_sources.elms import meeting_summary, _items_from_meeting_items_table; print\\('OK'\\)\")",
+      "Bash(psql \"postgresql://postgres.ghtswlvrnukaecgxgeib:aL%26hxeW45g7cUP5@aws-1-us-east-1.pooler.supabase.com:5432/postgres\" -c \"\\\\dt\")",
+      "Bash(python -c \"import backfill_no_matter_summaries; print\\('syntax OK'\\)\")",
+      "Bash(git push *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

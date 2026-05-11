@@ -164,13 +164,22 @@ def check_and_send_meeting_emails() -> None:
         if not state.get("agenda_sent_at") and not is_past:
             items       = _safe_fetch_items(meeting_id)
             non_routine = [i for i in items if not i.get("isRoutine")]
+
+            # Fetch public comment deadline from ELMS for upcoming meetings
+            comment_deadline = ""
+            try:
+                full_record = _elms_get(f"/meeting-agenda/{meeting_id}")
+                comment_deadline = _fmt_deadline(full_record.get("publicCommentDeadline") or "")
+            except Exception:
+                pass
+
             if non_routine:
-                _prewarm_matter_cache(non_routine)
                 enriched      = _enrich_items_for_email(items)
                 routine_count = sum(1 for i in items if i.get("isRoutine"))
                 _dispatch_meeting_emails("agenda", meeting_id, body, meeting_date,
                                          enriched, routine_count, location, "",
-                                         meeting_docs=None)
+                                         meeting_docs=None,
+                                         public_comment_deadline=comment_deadline)
             else:
                 # No matters on the agenda — send with meeting-level documents so
                 # subscribers can still see what is planned.
@@ -178,7 +187,8 @@ def check_and_send_meeting_emails() -> None:
                 routine_count = sum(1 for i in items if i.get("isRoutine"))
                 _dispatch_meeting_emails("agenda", meeting_id, body, meeting_date,
                                          [], routine_count, location, "",
-                                         meeting_docs=meeting_docs)
+                                         meeting_docs=meeting_docs,
+                                         public_comment_deadline=comment_deadline)
             _mark_agenda_sent(meeting_id, body, meeting_date, elms_status,
                               len(non_routine), routine_count, location)
             logger.info("[scheduler] agenda email sent: %s %s", body, meeting_date)
@@ -187,7 +197,6 @@ def check_and_send_meeting_emails() -> None:
         if not state.get("summary_sent_at") and is_past:
             items         = _safe_fetch_items(meeting_id)
             non_routine   = [i for i in items if not i.get("isRoutine")]
-            _prewarm_matter_cache(non_routine)
             summary_text  = meeting_summary(meeting_id, body, meeting_date, items)
             enriched      = _enrich_items_for_email(items)
             routine_count = sum(1 for i in items if i.get("isRoutine"))
@@ -336,20 +345,15 @@ def _prewarm_matter_cache(non_routine_items: list[dict]) -> None:
 def _enrich_items_for_email(items: list[dict]) -> list[dict]:
     """Enrich non-routine items for email rendering.
 
-    Reads matter fields from matter_detail_cache (populated by _prewarm_matter_cache)
-    so this never hits ELMS — every matter was already fetched and cached before
-    this function is called.
+    Reads all fields from matter_detail_cache, which _safe_fetch_items already
+    populated via _prewarm_matter_cache. No Claude calls happen here.
     """
     import json as _json
     non_routine = [i for i in items if not i.get("isRoutine", False)]
-    pt = plain_language_titles(non_routine)
     for item in non_routine:
         rn = item.get("recordNumber")
         if not rn:
             continue
-        item["plainLanguageTitle"] = pt.get(rn) or item.get("matterTitle", "")
-        # Read from matter_detail_cache first (pre-warmed); fall back to slim ELMS call.
-        # Check both canonical and S-variant so substituted matters resolve correctly.
         s_rn = _s_variant(rn)
         candidates = [rn] if s_rn == rn else [rn, s_rn]
         try:
@@ -366,9 +370,11 @@ def _enrich_items_for_email(items: list[dict]) -> list[dict]:
             if row:
                 d = row[0] if isinstance(row[0], dict) else _json.loads(row[0])
                 item.update({
-                    "status":          d.get("status"),
-                    "controllingBody": d.get("controllingBody"),
-                    "introductionDate": d.get("introductionDate"),
+                    "plainLanguageTitle": d.get("plainLanguageTitle") or item.get("matterTitle", ""),
+                    "status":             d.get("status"),
+                    "controllingBody":    d.get("controllingBody"),
+                    "introductionDate":   d.get("introductionDate"),
+                    "attachmentSummary":  d.get("attachmentSummary"),
                 })
             else:
                 try:
@@ -382,41 +388,7 @@ def _enrich_items_for_email(items: list[dict]) -> list[dict]:
                 })
         except Exception:
             pass
-        _load_attachment_summary(item)
     return non_routine
-
-
-def _load_attachment_summary(item: dict) -> None:
-    rn = item.get("recordNumber")
-    if not rn:
-        return
-    try:
-        with _db() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT summary FROM attachment_summaries WHERE url LIKE %s LIMIT 1",
-                (f"%{rn}%",),
-            )
-            row = cur.fetchone()
-            if row:
-                item["attachmentSummary"] = row[0]
-                return
-    except Exception:
-        pass
-    try:
-        detail = _elms_get(f"/matter/recordNumber/{rn}")
-        attachments = [
-            f for f in (detail.get("attachments") or [])
-            if f.get("path") or f.get("url")
-        ]
-        if attachments:
-            url   = attachments[0].get("path") or attachments[0].get("url")
-            fname = attachments[0].get("fileName") or attachments[0].get("name") or ""
-            summary = _attachment_summary(url, file_name=fname)
-            if summary:
-                item["attachmentSummary"] = summary
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +399,9 @@ def _safe_fetch_items(meeting_id: str) -> list[dict]:
     try:
         items = fetch_meeting_items(meeting_id)
         _cache_meeting_items(meeting_id, items)
+        non_routine = [i for i in items if not i.get("isRoutine")]
+        if non_routine:
+            _prewarm_matter_cache(non_routine)
         return items
     except Exception as e:
         logger.warning("[scheduler] fetch_meeting_items %s: %s", meeting_id, e)
@@ -473,6 +448,7 @@ def _dispatch_meeting_emails(
     location: str,
     summary_text: str,
     meeting_docs: "list[dict] | None" = None,
+    public_comment_deadline: str = "",
 ) -> None:
     subscribers = _get_subscribers(body)
     for email_addr in subscribers:
@@ -483,6 +459,7 @@ def _dispatch_meeting_emails(
             subj, html = render_agenda_email(
                 body, date_str, location, enriched, routine_count, unsub_url,
                 meeting_id=meeting_id, meeting_docs=meeting_docs,
+                public_comment_deadline=public_comment_deadline,
             )
         else:
             subj, html = render_summary_email(

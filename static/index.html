@@ -1723,6 +1723,7 @@
 
   function showMeetings() {
     showLegResults();
+    history.pushState(null, "", window.location.pathname);
     document.getElementById("leg-see-more").style.display = "none";
     const headerEl = document.getElementById("leg-results-header");
     if (legShowingAllMeetings) {
@@ -1827,20 +1828,30 @@
         ? new Date(m.date.slice(0,10) + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
         : "";
       const label = `${escLeg(m.body || "Meeting")} — ${date}`;
-      const counts = m.totalCount
-        ? `<span class="nr">${m.nonRoutineCount} non-routine</span> · ${m.routineCount} routine`
-        : "";
-      const summary = m.summary
-        ? `<div class="leg-meeting-summary">${escLeg(m.summary)}</div>`
-        : "";
       const bodyName = escLeg(m.body || "City Council");
+
+      let statusLine = "";
+      if (m.isUpcoming) {
+        const agendaNote = m.totalCount
+          ? `Agenda published · <span class="nr">${m.nonRoutineCount} item${m.nonRoutineCount !== 1 ? "s" : ""}</span> scheduled`
+          : "Agenda published";
+        statusLine = `<div class="leg-meeting-summary" style="color:#1a3a5c;font-style:normal;">📅 Upcoming — ${agendaNote}</div>`;
+      } else {
+        const counts = m.totalCount
+          ? `<span class="nr">${m.nonRoutineCount} non-routine</span> · ${m.routineCount} routine`
+          : "";
+        const summary = m.summary
+          ? `<div class="leg-meeting-summary">${escLeg(m.summary)}</div>`
+          : "";
+        statusLine = summary + (counts ? `<div class="leg-meeting-counts">${counts}</div>` : "");
+      }
+
       return `<div class="leg-meeting-card" role="listitem">
         <div class="leg-meeting-card-content" tabindex="0"
              onclick="loadMeetingMatters('${escLeg(m.meetingId)}','${escLeg(label)}')"
              onkeydown="if(event.key==='Enter')loadMeetingMatters('${escLeg(m.meetingId)}','${escLeg(label)}')">
           <div class="leg-meeting-header">${label}</div>
-          ${summary}
-          ${counts ? `<div class="leg-meeting-counts">${counts}</div>` : ""}
+          ${statusLine}
         </div>
         <button class="sub-meeting-card-btn"
                 onclick="openSubModal('meeting','${bodyName}')"
@@ -1870,6 +1881,7 @@
     legResultSource = legShowingAllMeetings ? "all-meetings" : "meeting";
     legCurrentMeetingLabel = label;
     legActiveMeetingId = meetingId;
+    history.pushState(null, "", "?meeting=" + encodeURIComponent(meetingId));
     legMeetingOffset = 0;
     legMeetingTotal = 0;
     legCurrentResults = [];
@@ -1889,8 +1901,11 @@
         clearSkelTimer();
         legMeetingContextHtml = _meetingContextHtml(data);
         if (data.hasNoMatters) {
+          const noMattersMsg = data.isUpcoming
+            ? "No specific items have been published on the agenda yet."
+            : "No specific matters were voted on at this meeting.";
           resultsEl.innerHTML = legMeetingContextHtml
-            + '<div class="leg-no-matters-notice">No specific matters were voted on at this meeting.</div>';
+            + `<div class="leg-no-matters-notice">${noMattersMsg}</div>`;
           document.getElementById("leg-browse-link").style.display = "none";
           document.getElementById("leg-see-more").style.display = "none";
           return;
@@ -2013,8 +2028,28 @@
   }
 
   function _meetingContextHtml(data) {
-    const summary = data.meetingSummary;
-    const docs = data.meetingDocuments || [];
+    const summary    = data.meetingSummary;
+    const docs       = data.meetingDocuments || [];
+    const isUpcoming = data.isUpcoming;
+
+    if (isUpcoming) {
+      let inner = `<p class="leg-meeting-context-summary" style="color:#1a3a5c;">
+        This meeting hasn't happened yet — the agenda has been published and items are listed below.
+      </p>`;
+      if (docs.length) {
+        inner += '<div class="leg-meeting-docs" style="margin-top:12px;">';
+        inner += '<div class="leg-meeting-docs-label">Agenda documents</div>';
+        docs.forEach(d => {
+          inner += '<div class="leg-meeting-doc-card">';
+          inner += `<a class="leg-meeting-doc-name" href="${escLeg(d.url)}" target="_blank" rel="noopener">${escLeg(d.name)}</a>`;
+          if (d.summary) inner += `<p class="leg-meeting-doc-summary">${escLeg(d.summary)}</p>`;
+          inner += '</div>';
+        });
+        inner += '</div>';
+      }
+      return `<div class="leg-meeting-context-card">${inner}</div>`;
+    }
+
     if (!summary && !docs.length) return "";
 
     let inner = "";
@@ -2429,7 +2464,33 @@
     const m = params.get("matter");
     const mid = params.get("meeting");
     if (m) { switchTab("legislation"); loadMatter(m); }
-    else if (mid) { switchTab("legislation"); loadMeetingMatters(mid, "Meeting"); }
+    else if (mid) {
+      switchTab("legislation");
+      function _labelForMeeting(id) {
+        const all = (legCurrentMeetings || []).concat(legAllMeetings || []);
+        const found = all.find(x => x.meetingId === id);
+        if (found) {
+          const date = found.date
+            ? new Date(found.date.slice(0,10) + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"})
+            : "";
+          return `${found.body || "Meeting"} — ${date}`;
+        }
+        return null;
+      }
+      const knownLabel = _labelForMeeting(mid);
+      if (knownLabel) {
+        loadMeetingMatters(mid, knownLabel);
+      } else {
+        fetch("/meetings/all")
+          .then(r => r.json())
+          .then(data => {
+            legAllMeetings = data.meetings || [];
+            const label = _labelForMeeting(mid) || "Meeting";
+            loadMeetingMatters(mid, label);
+          })
+          .catch(() => loadMeetingMatters(mid, "Meeting"));
+      }
+    }
   })();
 
   // ── Illinois Legislation tab ─────────────────────────────────────────────

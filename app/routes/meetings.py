@@ -98,6 +98,11 @@ def meeting_matters(meeting_id):
         offset = max(0, int(request.args.get("offset", 0)))
         limit  = min(50, max(1, int(request.args.get("limit", 10))))
 
+        # Determine if this meeting is upcoming before any heavy work
+        today = datetime.now(timezone.utc).date().isoformat()
+        _, meeting_date_str = _get_meeting_meta(meeting_id)
+        is_upcoming = bool(meeting_date_str and meeting_date_str > today)
+
         cached = _items_from_cache(meeting_id)
         if cached:
             items = cached
@@ -119,13 +124,14 @@ def meeting_matters(meeting_id):
 
         if not valid_items:
             docs = get_meeting_document_summaries(meeting_id)
-            summary = _get_meeting_summary(meeting_id, items)
+            summary = None if is_upcoming else _get_meeting_summary(meeting_id, items)
             return jsonify({
                 "matters": [],
                 "total": 0,
                 "offset": 0,
                 "limit": limit,
                 "hasNoMatters": True,
+                "isUpcoming": is_upcoming,
                 "meetingDocuments": docs,
                 "meetingSummary": summary,
             })
@@ -142,8 +148,9 @@ def meeting_matters(meeting_id):
         summary_future = None
         with ThreadPoolExecutor(max_workers=7) as pool:
             if offset == 0:
-                docs_future    = pool.submit(get_meeting_document_summaries, meeting_id)
-                summary_future = pool.submit(_get_meeting_summary, meeting_id, items)
+                docs_future = pool.submit(get_meeting_document_summaries, meeting_id)
+                if not is_upcoming:
+                    summary_future = pool.submit(_get_meeting_summary, meeting_id, items)
             futures = {
                 pool.submit(_slim_from_cache, i["recordNumber"]): i["recordNumber"]
                 for i in page
@@ -176,7 +183,8 @@ def meeting_matters(meeting_id):
                 "actionName": i.get("actionName"),
                 "isRoutine": i.get("isRoutine", False),
             })
-        payload = {"matters": slim, "total": total, "offset": offset, "limit": limit}
+        payload = {"matters": slim, "total": total, "offset": offset, "limit": limit,
+                   "isUpcoming": is_upcoming}
         if offset == 0:
             payload["meetingDocuments"] = docs
             payload["meetingSummary"] = summary
@@ -191,20 +199,38 @@ def meeting_matters(meeting_id):
 # ---------------------------------------------------------------------------
 
 def _meetings_from_db(limit: int = 5) -> list[dict]:
-    """Read enriched meetings directly from DB — no ELMS call needed."""
+    """Read enriched meetings directly from DB — no ELMS call needed.
+
+    Returns past meetings (most-recent first) followed by upcoming meetings
+    (soonest first), each tagged with isUpcoming.
+    """
     today = datetime.now(timezone.utc).date().isoformat()
+    future_cutoff = (datetime.now(timezone.utc).date().isoformat())  # 30-day window handled by known_meetings sync
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute(
-                """SELECT km.meeting_id, km.body, km.meeting_date, ms.summary,
-                          km.location, km.elms_status, km.nonroutine_count, km.routine_count
-                   FROM known_meetings km
-                   LEFT JOIN meeting_summaries ms USING (meeting_id)
-                   WHERE km.meeting_date <= %s
-                   ORDER BY km.meeting_date DESC
-                   LIMIT %s""",
-                (today, limit),
+                """(
+                     SELECT km.meeting_id, km.body, km.meeting_date, ms.summary,
+                            km.location, km.elms_status, km.nonroutine_count, km.routine_count,
+                            FALSE AS is_upcoming
+                     FROM known_meetings km
+                     LEFT JOIN meeting_summaries ms USING (meeting_id)
+                     WHERE km.meeting_date <= %s
+                     ORDER BY km.meeting_date DESC
+                     LIMIT %s
+                   )
+                   UNION ALL
+                   (
+                     SELECT km.meeting_id, km.body, km.meeting_date, NULL AS summary,
+                            km.location, km.elms_status, km.nonroutine_count, km.routine_count,
+                            TRUE AS is_upcoming
+                     FROM known_meetings km
+                     WHERE km.meeting_date > %s
+                     ORDER BY km.meeting_date ASC
+                     LIMIT 30
+                   )""",
+                (today, limit, today),
             )
             rows = cur.fetchall()
     except Exception as e:
@@ -212,7 +238,7 @@ def _meetings_from_db(limit: int = 5) -> list[dict]:
         return []
 
     results = []
-    for meeting_id, body, meeting_date, summary, location, elms_status, nonroutine_count, routine_count in rows:
+    for meeting_id, body, meeting_date, summary, location, elms_status, nonroutine_count, routine_count, is_upcoming in rows:
         nonroutine_count = nonroutine_count or 0
         routine_count    = routine_count or 0
         results.append({
@@ -221,7 +247,8 @@ def _meetings_from_db(limit: int = 5) -> list[dict]:
             "body":            body or "",
             "location":        location or "",
             "status":          elms_status or "",
-            "summary":         summary,
+            "summary":         None if is_upcoming else summary,
+            "isUpcoming":      bool(is_upcoming),
             "routineCount":    routine_count,
             "nonRoutineCount": nonroutine_count,
             "totalCount":      nonroutine_count + routine_count,
