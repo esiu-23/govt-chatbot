@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Who Owns What? — Chicago / Cook County / Illinois</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f5f7fa;
+  color: #1a1a2e;
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+.flag-bar { display: flex; height: 5px; }
+.flag-bar .b { background: #003F87; flex: 1; }
+.flag-bar .w { background: #fff; flex: 1; }
+.flag-bar .r { background: #c8102e; flex: 1; }
+
+header { background: #003F87; color: #fff; }
+
+.header-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 24px 28px;
+}
+
+.breadcrumb { font-size: 0.8rem; opacity: 0.7; margin-bottom: 14px; }
+.breadcrumb a { color: #fff; text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+
+.header-inner h1 { font-size: 1.65rem; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.3px; }
+.header-inner p { font-size: 0.92rem; opacity: 0.82; max-width: 620px; line-height: 1.55; }
+
+/* ── Main ── */
+main { max-width: 960px; margin: 0 auto; padding: 36px 24px 72px; }
+
+/* ── Jurisdiction legend ── */
+.j-legend {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.j-legend-card {
+  border-radius: 12px;
+  padding: 20px 22px;
+  border: 1.5px solid;
+  text-align: center;
+}
+.j-legend-card.city   { background: #e8eff9; border-color: #b3c9e8; }
+.j-legend-card.county { background: #e9f5ed; border-color: #a8d5b8; }
+.j-legend-card.state  { background: #ede9fe; border-color: #c4b5fd; }
+
+.j-legend-card .jl-level {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.j-legend-card.city   .jl-level { color: #003F87; }
+.j-legend-card.county .jl-level { color: #166534; }
+.j-legend-card.state  .jl-level { color: #6d28d9; }
+
+.j-legend-card .jl-name {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #1a1a2e;
+  margin-bottom: 12px;
+}
+
+.j-legend-card .jl-stat {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 3px;
+}
+.j-legend-card.city   .jl-stat { color: #003F87; }
+.j-legend-card.county .jl-stat { color: #166534; }
+.j-legend-card.state  .jl-stat { color: #6d28d9; }
+
+.j-legend-card .jl-sub { font-size: 0.75rem; color: #666; }
+
+/* ── Filter pills ── */
+.filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.filter-btn {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1.5px solid #dde3ed;
+  background: #fff;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+.filter-btn:hover { border-color: #003F87; color: #003F87; }
+.filter-btn.active { background: #003F87; border-color: #003F87; color: #fff; }
+
+/* ── Domain cards ── */
+.domain-grid { display: flex; flex-direction: column; gap: 20px; }
+
+.domain-card {
+  background: #fff;
+  border: 1px solid #dde3ed;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+.domain-card:hover { box-shadow: 0 4px 18px rgba(0,63,135,0.08); }
+.domain-card.hidden { display: none; }
+
+.domain-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #f0f2f5;
+  background: #fafbfc;
+}
+
+.domain-icon { font-size: 1.15rem; line-height: 1; }
+
+.domain-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  flex: 1;
+}
+
+.domain-cat-tag {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f0f2f5;
+  color: #666;
+  white-space: nowrap;
+}
+
+.domain-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.j-col {
+  padding: 18px 18px 20px;
+  border-right: 1px solid #f0f2f5;
+}
+.j-col:last-child { border-right: none; }
+
+/* ── Jurisdiction badge ── */
+.j-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+.j-badge.city   { background: #e8eff9; color: #003F87; }
+.j-badge.county { background: #e9f5ed; color: #166534; }
+.j-badge.state  { background: #ede9fe; color: #6d28d9; }
+
+/* ── Agency list ── */
+.agency-list { list-style: none; margin-bottom: 10px; }
+.agency-list li {
+  font-size: 0.82rem;
+  color: #444;
+  padding: 2px 0;
+  line-height: 1.4;
+  padding-left: 12px;
+  position: relative;
+}
+.agency-list li::before {
+  content: "·";
+  position: absolute;
+  left: 2px;
+  color: #aaa;
+}
+
+/* ── Note ── */
+.j-note {
+  font-size: 0.78rem;
+  color: #888;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+/* ── Budget Section ── */
+.budget-section {
+  margin-top: 52px;
+  padding-top: 32px;
+  border-top: 1px solid #dde3ed;
+}
+.budget-section .section-title {
+  font-size: 1.1rem; font-weight: 700; color: #003F87; margin-bottom: 6px; letter-spacing: -0.2px;
+}
+.budget-section .section-sub {
+  font-size: 0.88rem; color: #666; margin-bottom: 22px;
+}
+.budget-top-row {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;
+}
+.budget-card {
+  border-radius: 12px; padding: 20px 22px; border: 1.5px solid;
+  cursor: pointer; transition: box-shadow 0.15s, transform 0.12s; user-select: none;
+}
+.budget-card:hover { transform: translateY(-2px); box-shadow: 0 4px 18px rgba(0,0,0,0.1); }
+.budget-card.city   { background: #e8eff9; border-color: #b3c9e8; }
+.budget-card.county { background: #e9f5ed; border-color: #a8d5b8; }
+.budget-card.state  { background: #ede9fe; border-color: #c4b5fd; }
+.budget-card.open.city   { border-color: #003F87; box-shadow: 0 4px 18px rgba(0,63,135,0.18); }
+.budget-card.open.county { border-color: #166534; box-shadow: 0 4px 18px rgba(22,101,52,0.18); }
+.budget-card.open.state  { border-color: #6d28d9; box-shadow: 0 4px 18px rgba(109,40,217,0.18); }
+.bc-level {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 2px;
+}
+.budget-card.city   .bc-level { color: #003F87; }
+.budget-card.county .bc-level { color: #166534; }
+.budget-card.state  .bc-level { color: #6d28d9; }
+.bc-name { font-size: 0.92rem; font-weight: 600; color: #1a1a2e; margin-bottom: 8px; }
+.bc-total { font-size: 1.9rem; font-weight: 700; line-height: 1; margin-bottom: 3px; }
+.budget-card.city   .bc-total { color: #003F87; }
+.budget-card.county .bc-total { color: #166534; }
+.budget-card.state  .bc-total { color: #6d28d9; }
+.bc-sub { font-size: 0.72rem; color: #888; margin-bottom: 8px; }
+.bc-expand-hint { font-size: 0.73rem; font-weight: 600; color: #aaa; display: flex; align-items: center; gap: 5px; }
+.bc-arrow { display: inline-block; transition: transform 0.2s; font-size: 0.65rem; }
+.budget-card.open .bc-arrow { transform: rotate(180deg); }
+.budget-card.open .bc-expand-hint { color: #777; }
+
+/* Drill-down panel */
+.budget-panel {
+  display: none; background: #fff; border: 1px solid #dde3ed;
+  border-radius: 12px; padding: 24px 26px; margin-top: 10px;
+}
+.budget-panel.open { display: block; }
+.budget-panel-title { font-size: 0.82rem; font-weight: 700; color: #555; margin-bottom: 14px; }
+
+/* Treemap */
+.treemap-wrap {
+  position: relative; width: 100%; height: 220px;
+  border-radius: 8px; overflow: hidden; margin-bottom: 22px;
+}
+.tm-block {
+  position: absolute; box-sizing: border-box; border: 2px solid rgba(255,255,255,0.3);
+  overflow: hidden; display: flex; align-items: flex-end; padding: 4px 5px;
+  cursor: default; transition: filter 0.12s;
+}
+.tm-block:hover { filter: brightness(1.12); z-index: 2; border-color: rgba(255,255,255,0.7); }
+.tm-label {
+  font-size: 0.62rem; font-weight: 600; color: rgba(255,255,255,0.9); line-height: 1.25;
+  overflow: hidden; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  pointer-events: none;
+}
+.tm-tooltip {
+  position: fixed; background: rgba(10,10,25,0.9); color: #fff;
+  padding: 8px 12px; border-radius: 8px; font-size: 0.79rem; line-height: 1.4;
+  pointer-events: none; z-index: 999; display: none; max-width: 200px;
+}
+.tm-tooltip.show { display: block; }
+
+/* Budget item list */
+.budget-list { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.bli {
+  display: grid; grid-template-columns: 12px 1fr 120px 60px;
+  align-items: center; gap: 10px; font-size: 0.81rem;
+}
+.bli-dot  { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.bli-name { color: #333; }
+.bli-track { background: #f0f2f5; border-radius: 3px; height: 6px; overflow: hidden; }
+.bli-fill  { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+.bli-amt   { text-align: right; font-weight: 600; color: #555; font-size: 0.77rem; }
+.budget-disclaimer {
+  font-size: 0.74rem; color: #aaa; font-style: italic; margin-top: 16px; line-height: 1.4;
+}
+.budget-disclaimer a { color: #aaa; }
+.budget-disclaimer a:hover { color: #003F87; }
+
+/* ── Sources section ── */
+.sources-section {
+  margin-top: 52px;
+  padding-top: 32px;
+  border-top: 1px solid #dde3ed;
+}
+
+.sources-section h2 {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #888;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 18px;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+}
+
+.source-group h3 {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 9px;
+  padding-bottom: 5px;
+  border-bottom: 2px solid;
+}
+.source-group.city   h3 { color: #003F87; border-color: #003F87; }
+.source-group.county h3 { color: #166534; border-color: #166534; }
+.source-group.state  h3 { color: #6d28d9; border-color: #6d28d9; }
+
+.source-group ul { list-style: none; }
+.source-group li { font-size: 0.8rem; color: #555; margin-bottom: 5px; line-height: 1.4; }
+.source-group li a { color: #555; text-decoration: none; }
+.source-group li a:hover { color: #003F87; text-decoration: underline; }
+
+/* ── Footer ── */
+footer {
+  border-top: 1px solid #dde3ed;
+  padding: 18px 24px;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #999;
+}
+footer a { color: #999; text-decoration: none; }
+footer a:hover { color: #003F87; }
+
+/* ── Responsive ── */
+@media (max-width: 720px) {
+  .j-legend { grid-template-columns: 1fr; gap: 12px; }
+  .domain-body { grid-template-columns: 1fr; }
+  .j-col { border-right: none; border-bottom: 1px solid #f0f2f5; }
+  .j-col:last-child { border-bottom: none; }
+  .source-grid { grid-template-columns: 1fr; }
+  .domain-cat-tag { display: none; }
+  .budget-top-row { grid-template-columns: 1fr; }
+  .bli { grid-template-columns: 12px 1fr 60px; }
+  .bli-track { display: none; }
+}
+@media (max-width: 480px) {
+  .header-inner h1 { font-size: 1.3rem; }
+  main { padding: 28px 16px 56px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="flag-bar">
+    <div class="b"></div><div class="w"></div><div class="b"></div>
+    <div class="w"></div><div class="r"></div><div class="w"></div>
+  </div>
+  <div class="header-inner">
+    <div class="breadcrumb"><a href="/">← The Government &amp; Me</a></div>
+    <h1>Who Owns What?</h1>
+    <p>A domain-by-domain map of which services are run by the City of Chicago, Cook County, and the State of Illinois.</p>
+  </div>
+</header>
+
+<main>
+  <!-- Jurisdiction summary -->
+  <div class="j-legend">
+    <div class="j-legend-card city">
+      <div class="jl-level">City</div>
+      <div class="jl-name">City of Chicago</div>
+      <div class="jl-stat" id="agg-city">—</div>
+      <div class="jl-sub">agencies &amp; departments</div>
+    </div>
+    <div class="j-legend-card county">
+      <div class="jl-level">County</div>
+      <div class="jl-name">Cook County</div>
+      <div class="jl-stat" id="agg-county">—</div>
+      <div class="jl-sub">agencies &amp; departments</div>
+    </div>
+    <div class="j-legend-card state">
+      <div class="jl-level">State</div>
+      <div class="jl-name">State of Illinois</div>
+      <div class="jl-stat" id="agg-state">—</div>
+      <div class="jl-sub">agencies &amp; departments</div>
+    </div>
+  </div>
+
+  <!-- Filter pills -->
+  <div class="filters" id="filters">
+    <button class="filter-btn active" data-cat="all">All (14)</button>
+    <button class="filter-btn" data-cat="public-safety">Public Safety &amp; Justice</button>
+    <button class="filter-btn" data-cat="health">Health &amp; Social</button>
+    <button class="filter-btn" data-cat="housing">Housing &amp; Property</button>
+    <button class="filter-btn" data-cat="transportation">Transportation</button>
+    <button class="filter-btn" data-cat="education">Education &amp; Parks</button>
+    <button class="filter-btn" data-cat="business">Business</button>
+    <button class="filter-btn" data-cat="other">Other</button>
+  </div>
+
+  <!-- Domain cards (JS-rendered) -->
+  <div class="domain-grid" id="domain-grid"></div>
+
+  <!-- Budget section -->
+  <section class="budget-section">
+    <h2 class="section-title">Budgets</h2>
+    <p class="section-sub">Approximate FY2025 budgets — click a jurisdiction to see the breakdown.</p>
+    <div class="budget-top-row">
+      <div class="budget-card city" id="bc-city" onclick="toggleBudget('city')">
+        <div class="bc-level">City</div>
+        <div class="bc-name">City of Chicago</div>
+        <div class="bc-total">$16.6B</div>
+        <div class="bc-sub">FY2025 all-funds appropriation</div>
+        <div class="bc-expand-hint">View breakdown <span class="bc-arrow">▼</span></div>
+      </div>
+      <div class="budget-card county" id="bc-county" onclick="toggleBudget('county')">
+        <div class="bc-level">County</div>
+        <div class="bc-name">Cook County</div>
+        <div class="bc-total">$9.0B</div>
+        <div class="bc-sub">FY2025 all-funds appropriation</div>
+        <div class="bc-expand-hint">View breakdown <span class="bc-arrow">▼</span></div>
+      </div>
+      <div class="budget-card state" id="bc-state" onclick="toggleBudget('state')">
+        <div class="bc-level">State</div>
+        <div class="bc-name">State of Illinois</div>
+        <div class="bc-total">$51.8B</div>
+        <div class="bc-sub">FY2025 general funds appropriations</div>
+        <div class="bc-expand-hint">View breakdown <span class="bc-arrow">▼</span></div>
+      </div>
+    </div>
+    <div id="budget-panel" class="budget-panel">
+      <div class="budget-panel-title" id="budget-panel-title"></div>
+      <div class="treemap-wrap" id="treemap-wrap"></div>
+      <ul class="budget-list" id="budget-list"></ul>
+      <p class="budget-disclaimer">Figures are approximate FY2025 estimates from official budget documents. "All-funds" includes federal and state pass-through grants.
+        Sources: <a href="https://www.chicago.gov/city/en/depts/obm/provdrs/budget.html" target="_blank" rel="noreferrer">Chicago Office of Budget &amp; Management</a>,
+        <a href="https://www.cookcountyil.gov/service/budget" target="_blank" rel="noreferrer">Cook County Budget Office</a>,
+        <a href="https://www2.illinois.gov/gov/budget" target="_blank" rel="noreferrer">Illinois Governor's Office of Management and Budget</a>.
+      </p>
+    </div>
+  </section>
+  <div class="tm-tooltip" id="tm-tooltip"></div>
+
+  <!-- Revenue section -->
+  <section class="budget-section">
+    <h2 class="section-title">Revenue</h2>
+    <p class="section-sub">Approximate FY2025 revenue by source — click a jurisdiction to see the breakdown.</p>
+    <div class="budget-top-row">
+      <div class="budget-card city" id="rc-city" onclick="toggleRevenue('city')">
+        <div class="bc-level">City</div>
+        <div class="bc-name">City of Chicago</div>
+        <div class="bc-total">$16.2B</div>
+        <div class="bc-sub">FY2025 all-funds revenue</div>
+        <div class="bc-expand-hint">View breakdown <span class="bc-arrow">▼</span></div>
+      </div>
+      <div class="budget-card county" id="rc-county" onclick="toggleRevenue('county')">
+        <div class="bc-level">County</div>
+        <div class="bc-name">Cook County</div>
+        <div class="bc-total">$8.7B</div>
+        <div class="bc-sub">FY2025 all-funds revenue</div>
+        <div class="bc-expand-hint">View breakdown <span class="bc-arrow">▼</span></div>
+      </div>
+      <div class="budget-card state" id="rc-state" onclick="toggleRevenue('state')">
+        <div class="bc-level">State</div>
+        <div class="bc-name">State of Illinois</div>
+        <div class="bc-total">$53.3B</div>
+        <div class="bc-sub">FY2025 general funds revenue</div>
+        <div class="bc-expand-hint">View breakdown <span class="bc-arrow">▼</span></div>
+      </div>
+    </div>
+    <div id="revenue-panel" class="budget-panel">
+      <div class="budget-panel-title" id="revenue-panel-title"></div>
+      <div class="treemap-wrap" id="revenue-treemap-wrap"></div>
+      <ul class="budget-list" id="revenue-list"></ul>
+      <p class="budget-disclaimer">Figures are approximate FY2025 estimates from official budget documents.
+        Sources: <a href="https://www.chicago.gov/city/en/depts/obm/provdrs/budget.html" target="_blank" rel="noreferrer">Chicago Office of Budget &amp; Management</a>,
+        <a href="https://www.cookcountyil.gov/service/budget" target="_blank" rel="noreferrer">Cook County Budget Office</a>,
+        <a href="https://www2.illinois.gov/gov/budget" target="_blank" rel="noreferrer">Illinois Governor's Office of Management and Budget</a>.
+      </p>
+    </div>
+  </section>
+
+  <!-- Data sources -->
+  <div class="sources-section">
+    <h2>Sources</h2>
+    <div class="source-grid">
+      <div class="source-group city">
+        <h3>City of Chicago</h3>
+        <ul>
+          <li><strong>Domain map:</strong> <a href="https://chicago.gov/city/en/depts.html" target="_blank" rel="noreferrer">chicago.gov — City Departments</a></li>
+          <li><strong>Budget:</strong> <a href="https://data.cityofchicago.org/Administration-Finance/Budget-2025-Budget-Ordinance-Appropriations/t59y-fr3k/about_data" target="_blank" rel="noreferrer">Chicago Open Data — FY2025 Budget Ordinance Appropriations</a></li>
+          <li><strong>Revenue:</strong> <a href="https://data.cityofchicago.org/Administration-Finance/Budget-2025-Budget-Ordinance-Revenue/e5cq-t86i/about_data" target="_blank" rel="noreferrer">Chicago Open Data — FY2025 Budget Ordinance Revenue</a></li>
+        </ul>
+      </div>
+      <div class="source-group county">
+        <h3>Cook County</h3>
+        <ul>
+          <li><strong>Domain map:</strong> <a href="https://www.cookcountyil.gov/agencies-departments" target="_blank" rel="noreferrer">cookcountyil.gov — Agencies &amp; Departments</a></li>
+          <li><strong>Budget:</strong> <a href="https://budget.cookcountyil.gov/#!/year/2025/operating/0/bureau_name" target="_blank" rel="noreferrer">Cook County Open Budget — FY2025 Appropriations</a></li>
+          <li><strong>Revenue:</strong> <a href="https://budget.cookcountyil.gov/#!/year/2025/revenue/0/fund" target="_blank" rel="noreferrer">Cook County Open Budget — FY2025 Revenue</a></li>
+        </ul>
+      </div>
+      <div class="source-group state">
+        <h3>State of Illinois</h3>
+        <ul>
+          <li><strong>Domain map:</strong> <a href="https://illinois.gov/government/state-agencies.html" target="_blank" rel="noreferrer">illinois.gov — State Agencies</a></li>
+          <li><strong>Budget:</strong> <a href="https://cgfa.ilga.gov/Upload/FY%202025%20Budget%20Summary.pdf" target="_blank" rel="noreferrer">CGFA — FY2025 Budget Summary (p.19, General Funds)</a></li>
+          <li><strong>Revenue:</strong> <a href="https://cgfa.ilga.gov/Upload/FY%202025%20Budget%20Summary.pdf" target="_blank" rel="noreferrer">CGFA — FY2025 Budget Summary (p.21, General Funds Revenue)</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Domain map: <a href="https://chicago.gov/city/en/depts.html" target="_blank" rel="noreferrer">chicago.gov</a>,
+  <a href="https://www.cookcountyil.gov/agencies-departments" target="_blank" rel="noreferrer">cookcountyil.gov</a>,
+  <a href="https://illinois.gov/government/state-agencies.html" target="_blank" rel="noreferrer">illinois.gov</a>
+  &nbsp;·&nbsp;
+  Budget &amp; Revenue: <a href="https://data.cityofchicago.org/Administration-Finance/Budget-2025-Budget-Ordinance-Appropriations/t59y-fr3k/about_data" target="_blank" rel="noreferrer">Chicago FY2025 Appropriations</a>, <a href="https://data.cityofchicago.org/Administration-Finance/Budget-2025-Budget-Ordinance-Revenue/e5cq-t86i/about_data" target="_blank" rel="noreferrer">Chicago FY2025 Revenue</a>,
+  <a href="https://budget.cookcountyil.gov/#!/year/2025/operating/0/bureau_name" target="_blank" rel="noreferrer">Cook County FY2025 Appropriations</a>, <a href="https://budget.cookcountyil.gov/#!/year/2025/revenue/0/fund" target="_blank" rel="noreferrer">Cook County FY2025 Revenue</a>,
+  <a href="https://cgfa.ilga.gov/Upload/FY%202025%20Budget%20Summary.pdf" target="_blank" rel="noreferrer">Illinois CGFA FY2025 Budget Summary</a>
+</footer>
+
+<script>
+// ── Domain definitions ────────────────────────────────────────────────────────
+const DOMAINS = [
+  {
+    id: 'public-safety', category: 'public-safety', icon: '🚔',
+    title: 'Public Safety & Law Enforcement',
+    city: {
+      agencies: ['Chicago Police Department (CPD)', 'Chicago Fire Department (CFD)'],
+      note: 'CPD serves 22 police districts across ~234 sq miles; CFD operates 97 engine companies and 57 truck companies'
+    },
+    county: {
+      agencies: ["Cook County Sheriff's Office", 'Cook County Jail (Dept. of Corrections)', 'Animal & Rabies Control'],
+      note: 'Jail holds ~5,600 people on any given day; Sheriff patrols unincorporated areas and forest preserves'
+    },
+    state: {
+      agencies: ['Illinois State Police (ISP)', 'IL Dept. of Corrections (IDOC)'],
+      note: 'IDOC operates 28 state prisons statewide; ISP enforces state highways and runs FOID background checks'
+    }
+  },
+  {
+    id: 'courts-justice', category: 'public-safety', icon: '⚖️',
+    title: 'Courts & Justice',
+    city: {
+      agencies: ['Dept. of Administrative Hearings'],
+      note: 'Handles city ordinance violations — parking tickets, building code fines, and business license disputes'
+    },
+    county: {
+      agencies: ['Circuit Court of Cook County', "State's Attorney", 'Public Defender', 'Adult Probation Dept.', 'Public Guardian', 'Clerk of the Circuit Court'],
+      note: 'The nation\'s largest unified court system, handling 1.2M+ cases per year across 13 municipal districts'
+    },
+    state: {
+      agencies: ['IL Appellate Court (1st District)', 'IL Supreme Court', 'Attorney General'],
+      note: 'Appellate and Supreme courts hear appeals from Cook County Circuit Court; AG enforces consumer protection statewide'
+    }
+  },
+  {
+    id: 'health', category: 'health', icon: '🏥',
+    title: 'Health Services',
+    city: {
+      agencies: ['Chicago Dept. of Public Health (CDPH)', 'DFSS health delegate programs'],
+      note: 'CDPH runs inspections, vaccination clinics, and communicable disease response for ~2.7M city residents'
+    },
+    county: {
+      agencies: ['Cook County Health (network of 30+ clinics)', 'Stroger Hospital', 'Provident Hospital', 'Oak Forest Hospital', "Medical Examiner's Office"],
+      note: 'Cook County Health serves patients regardless of ability to pay; Stroger is the only Level 1 trauma center in the county public system'
+    },
+    state: {
+      agencies: ['IL Dept. of Public Health (IDPH)', 'IL Dept. of Healthcare & Family Services (HFS)', 'IDHS behavioral health programs'],
+      note: 'HFS administers Medicaid for ~3.5M Illinoisans; IDPH oversees statewide public health regulation and vital statistics'
+    }
+  },
+  {
+    id: 'education', category: 'education', icon: '🎓',
+    title: 'Education',
+    city: {
+      agencies: ['Chicago Public Schools (CPS)', 'City Colleges of Chicago (7 campuses)'],
+      note: 'CPS board is mayor-appointed; ~330K students across ~600 schools; City Colleges serve ~70K credit students'
+    },
+    county: {
+      agencies: ['None directly'],
+      note: 'Illinois has no county-run school system; counties play no role in K-12 education governance'
+    },
+    state: {
+      agencies: ['IL State Board of Education (ISBE)', 'IL Community College Board (ICCB)', 'University of Illinois system (UIC, UIUC, UIS)'],
+      note: 'ISBE oversees ~850 school districts statewide; the UI system enrolls ~90,000 students across three campuses'
+    }
+  },
+  {
+    id: 'transportation', category: 'transportation', icon: '🛣️',
+    title: 'Transportation & Roads',
+    city: {
+      agencies: ['CDOT — Chicago Dept. of Transportation', 'City streets, alleys, sidewalks, signals', 'Chicago River bridges'],
+      note: 'CDOT manages ~4,000 miles of streets, 17,000+ alleys, and 850+ signalized intersections citywide'
+    },
+    county: {
+      agencies: ['Cook County Dept. of Transportation & Highways'],
+      note: 'Only maintains roads in unincorporated Cook County — does not maintain streets inside any municipality'
+    },
+    state: {
+      agencies: ['IDOT — IL Dept. of Transportation', 'IL Tollway (I-88, I-90/94 toll segments)'],
+      note: 'IDOT manages ~16,000 miles of state highways; interstates I-90, I-94, I-290, I-55, and I-57 run through Chicago'
+    }
+  },
+  {
+    id: 'transit', category: 'transportation', icon: '🚇',
+    title: 'Public Transit',
+    city: {
+      agencies: ['CTA — Chicago Transit Authority', 'CTA bus routes + L rail network'],
+      note: 'Board majority-appointed by Chicago mayor; serves the city and a few near suburbs with ~1M daily riders'
+    },
+    county: {
+      agencies: ['None directly'],
+      note: 'No county-run transit system; suburban Cook County is served by Metra and Pace'
+    },
+    state: {
+      agencies: ['Regional Transportation Authority (RTA)', 'Metra commuter rail', 'Pace suburban bus'],
+      note: 'RTA created by state legislature; Metra and Pace boards are multi-county and serve the broader region'
+    }
+  },
+  {
+    id: 'housing', category: 'housing', icon: '🏘️',
+    title: 'Housing & Buildings',
+    city: {
+      agencies: ['Dept. of Buildings (DOB)', 'Dept. of Housing (DOH)', 'Chicago Housing Authority (CHA)'],
+      note: 'DOB issues ~50K permits annually; CHA houses ~55K residents in public housing and voucher programs'
+    },
+    county: {
+      agencies: ['Assessor permits (unincorporated Cook County only)'],
+      note: 'County handles building permits only in unincorporated Cook County (~130 sq miles); municipalities issue their own'
+    },
+    state: {
+      agencies: ['IL Housing Development Authority (IHDA)', 'DCEO community development block grants'],
+      note: 'IHDA provides financing for affordable housing statewide; does not own or permit buildings directly'
+    }
+  },
+  {
+    id: 'parks', category: 'education', icon: '🌳',
+    title: 'Parks & Open Space',
+    city: {
+      agencies: ['Chicago Park District (580+ parks)', 'DCASE — Dept. of Cultural Affairs', 'Millennium Park, Navy Pier programming'],
+      note: 'Park District is state-created but mayor-appointed; manages 580+ parks and 26 miles of lakefront'
+    },
+    county: {
+      agencies: ['Forest Preserves of Cook County'],
+      note: '69,000 acres of forest preserves across Cook County, including parcels within Chicago city limits'
+    },
+    state: {
+      agencies: ['IL Dept. of Natural Resources (IDNR)'],
+      note: 'Manages state parks and nature preserves; also oversees wildlife, wetlands, and natural areas statewide'
+    }
+  },
+  {
+    id: 'environmental', category: 'other', icon: '♻️',
+    title: 'Environmental Services',
+    city: {
+      agencies: ['Streets & Sanitation (trash, recycling, street sweeping)', 'Dept. of Water Management (water supply & city sewer)'],
+      note: 'City provides drinking water from Lake Michigan to ~5.5M people and collects household waste citywide'
+    },
+    county: {
+      agencies: ['Metropolitan Water Reclamation District (MWRD)', 'Bureau of Environmental Sustainability'],
+      note: 'MWRD is a separate special district treating wastewater for all of Cook County; largest such system in the US'
+    },
+    state: {
+      agencies: ['IL Environmental Protection Agency (IEPA)', 'IDNR (wetlands, wildlife)'],
+      note: 'IEPA issues permits and enforces air, water, and land pollution standards across all 102 Illinois counties'
+    }
+  },
+  {
+    id: 'property', category: 'housing', icon: '📋',
+    title: 'Property & Land Records',
+    city: {
+      agencies: ['City-owned parcels (vacants, facilities)'],
+      note: 'City owns ~13,000 parcels including vacant lots, park land, facilities, and rights-of-way'
+    },
+    county: {
+      agencies: ["Cook County Assessor's Office", 'Cook County Treasurer', 'Board of Review (appeals)', 'County Clerk — Tax Extension Unit'],
+      note: 'Assessor values 1.8M+ parcels annually on a 3-year township rotation; Treasurer collects ~$16B in property taxes per year'
+    },
+    state: {
+      agencies: ['IL Dept. of Revenue (IDOR)', 'Illinois Property Tax Code (ILCS)'],
+      note: 'IDOR sets assessment standards and oversees homestead exemptions; actual valuation is done by the County Assessor'
+    }
+  },
+  {
+    id: 'social-services', category: 'health', icon: '🤝',
+    title: 'Social Services & Human Services',
+    city: {
+      agencies: ['DFSS — Dept. of Family & Support Services', 'Commission on Human Relations'],
+      note: 'DFSS coordinates a delegate agency network of 200+ community organizations across all 77 neighborhoods'
+    },
+    county: {
+      agencies: ['Dept. of Community & Family Support', "Cook County Dept. of Veteran Affairs"],
+      note: 'County services supplement state programs, especially in suburban Cook County municipalities'
+    },
+    state: {
+      agencies: ['IDHS — Dept. of Human Services (SNAP, mental health)', 'IDES — Dept. of Employment Security', 'IL Dept. on Aging', 'DCFS — Dept. of Children & Family Services'],
+      note: 'IDES administers unemployment insurance for all Illinois workers; IDHS handles SNAP and TANF statewide'
+    }
+  },
+  {
+    id: 'business', category: 'business', icon: '🏪',
+    title: 'Business & Licensing',
+    city: {
+      agencies: ['BACP — Business Affairs & Consumer Protection', 'City Clerk (tobacco & other permits)'],
+      note: 'BACP maintains ~80K active business licenses citywide, ranging from restaurants to contractors to manufacturers'
+    },
+    county: {
+      agencies: ['Bureau of Economic Development', 'Unincorporated area permits only'],
+      note: 'County does not license businesses within Chicago or incorporated suburbs — only in unincorporated areas'
+    },
+    state: {
+      agencies: ['IDFPR — Dept. of Financial & Professional Regulation', 'Secretary of State (business entity registration)', 'IL Dept. of Revenue (sales tax, employer reg.)'],
+      note: 'IDFPR licenses ~1M professionals statewide; SoS registers all LLCs and corporations in Illinois'
+    }
+  },
+  {
+    id: 'vital-records', category: 'other', icon: '📜',
+    title: 'Vital Records & Elections',
+    city: {
+      agencies: ['Chicago Board of Election Commissioners'],
+      note: 'Runs Chicago city elections independently from the rest of Cook County with its own board and staff'
+    },
+    county: {
+      agencies: ['County Clerk — vital records (birth, death, marriage)', 'County Clerk Elections Division (suburban Cook County)'],
+      note: 'County Clerk issues vital records for all of Cook County and runs elections for the 130+ suburban municipalities'
+    },
+    state: {
+      agencies: ['IL State Board of Elections', "Secretary of State (driver's licenses, vehicle reg.)", 'IDPH statewide vital records registry'],
+      note: "Secretary of State serves ~10M licensed Illinois drivers; IDPH maintains the statewide registry of births and deaths"
+    }
+  },
+  {
+    id: 'emergency', category: 'public-safety', icon: '🚨',
+    title: 'Emergency Management',
+    city: {
+      agencies: ['OEMC — Office of Emergency Mgmt & Communications', 'Chicago 911 dispatch center', 'City-wide camera network (POD cameras)'],
+      note: 'OEMC coordinates city emergency response, operates 911 dispatch, and manages thousands of public cameras'
+    },
+    county: {
+      agencies: ['Dept. of Emergency Management & Regional Security'],
+      note: 'Coordinates emergency preparedness across all Cook County municipalities and serves as FEMA regional liaison'
+    },
+    state: {
+      agencies: ['IL Emergency Management Agency (IEMA)', 'IL National Guard'],
+      note: 'IEMA is the state liaison to FEMA for major disaster declarations; National Guard can be activated by the Governor'
+    }
+  }
+];
+
+// ── Category labels ────────────────────────────────────────────────────────────
+const CAT_LABELS = {
+  'public-safety': 'Public Safety & Justice',
+  'health':        'Health & Social',
+  'housing':       'Housing & Property',
+  'transportation':'Transportation',
+  'education':     'Education & Parks',
+  'business':      'Business',
+  'other':         'Other'
+};
+
+// ── Render helpers ─────────────────────────────────────────────────────────────
+function renderJCol(domainId, j, label, data) {
+  const agencies = (data?.agencies || [])
+    .map(a => `<li>${a}</li>`)
+    .join('');
+  const noteHtml = data?.note ? `<p class="j-note">${data.note}</p>` : '';
+  return `
+    <div class="j-col">
+      <span class="j-badge ${j}">${label}</span>
+      <ul class="agency-list">${agencies}</ul>
+      ${noteHtml}
+    </div>`;
+}
+
+function renderDomains() {
+  const grid = document.getElementById('domain-grid');
+  grid.innerHTML = '';
+  DOMAINS.forEach(d => {
+    const card = document.createElement('div');
+    card.className = 'domain-card';
+    card.dataset.category = d.category;
+    card.id = `card-${d.id}`;
+    card.innerHTML = `
+      <div class="domain-header">
+        <span class="domain-icon">${d.icon}</span>
+        <span class="domain-title">${d.title}</span>
+        <span class="domain-cat-tag">${CAT_LABELS[d.category]}</span>
+      </div>
+      <div class="domain-body">
+        ${renderJCol(d.id, 'city',   'City of Chicago',    d.city)}
+        ${renderJCol(d.id, 'county', 'Cook County',        d.county)}
+        ${renderJCol(d.id, 'state',  'State of Illinois',  d.state)}
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+// ── Aggregate legend counts ────────────────────────────────────────────────────
+function updateLegend() {
+  ['city', 'county', 'state'].forEach(j => {
+    const count = DOMAINS.reduce((n, d) => {
+      return n + (d[j]?.agencies || []).filter(a => !a.startsWith('None')).length;
+    }, 0);
+    document.getElementById(`agg-${j}`).textContent = count;
+  });
+}
+
+// ── Filter pills ───────────────────────────────────────────────────────────────
+document.getElementById('filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  const cat = btn.dataset.cat;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.domain-card').forEach(card => {
+    card.classList.toggle('hidden', cat !== 'all' && card.dataset.category !== cat);
+  });
+});
+
+// ── Budget data ────────────────────────────────────────────────────────────────
+const BUDGETS = {
+  city: {
+    label: 'City of Chicago — FY2025 All-Funds Budget (~$16.6B)',
+    items: [
+      { name: 'Federal & State Grant Funds',      value: 3500, color: '#2778d2' },
+      { name: 'Other City Departments',           value: 5142, color: '#6aabf5' },
+      { name: 'Chicago Police Department',        value: 1940, color: '#00296b' },
+      { name: 'TIF Funds',                        value: 1500, color: '#1a65b9' },
+      { name: 'Capital Improvement Program',      value: 1500, color: '#4491eb' },
+      { name: 'Water & Sewer Infrastructure',     value: 1100, color: '#0d52a0' },
+      { name: 'Chicago Fire Department',          value: 838,  color: '#003F87' },
+      { name: 'Streets & Sanitation',             value: 420,  color: '#8fc4ff' },
+      { name: 'Transportation (CDOT)',            value: 360,  color: '#b3d8ff' },
+      { name: 'Public Health & Human Services',   value: 300,  color: '#cce5ff' },
+    ]
+  },
+  county: {
+    label: 'Cook County — FY2025 All-Funds Budget (~$9.0B)',
+    items: [
+      { name: 'Federal & Grant Funds',            value: 3920, color: '#0d6636' },
+      { name: 'Cook County Health System',        value: 2500, color: '#064e29' },
+      { name: 'Administration & Other Offices',   value: 670,  color: '#a8f0c0' },
+      { name: "Sheriff's Office & Corrections",   value: 700,  color: '#147e43' },
+      { name: 'Circuit Court of Cook County',     value: 500,  color: '#1b9650' },
+      { name: "State's Attorney",                 value: 200,  color: '#22ae5d' },
+      { name: 'Forest Preserves of Cook County',  value: 260,  color: '#58d688' },
+      { name: 'Public Defender',                  value: 130,  color: '#35c470' },
+      { name: 'Transportation & Highways',        value: 120,  color: '#80e8a4' },
+    ]
+  },
+  state: {
+    label: 'State of Illinois — FY2025 General Funds Appropriations (~$51.8B)',
+    items: [
+      { name: 'Healthcare & Family Services (Medicaid)', value: 16000, color: '#1a0540' },
+      { name: 'K-12 Education (ISBE)',                   value: 10800, color: '#2d0a6e' },
+      { name: 'Human Services (IDHS)',                   value: 6700,  color: '#420f98' },
+      { name: 'Other Agencies & Admin',                  value: 7690,  color: '#be8fff' },
+      { name: 'Debt Service',                            value: 4200,  color: '#a060f8' },
+      { name: 'Public Safety (IDOC, ISP)',               value: 2400,  color: '#8a42ea' },
+      { name: 'Higher Education',                        value: 2300,  color: '#5a18be' },
+      { name: 'Transfers Out',                           value: 1700,  color: '#7228d4' },
+    ]
+  }
+};
+
+// ── Slice-and-dice treemap layout ─────────────────────────────────────────────
+function computeTreemap(items, W, H) {
+  const sorted = [...items].sort((a, b) => b.value - a.value);
+  const out = [];
+  function slice(nodes, x, y, w, h, tv) {
+    if (!nodes.length) return;
+    if (nodes.length === 1) { out.push({ ...nodes[0], x, y, w, h }); return; }
+    const frac = nodes[0].value / tv;
+    if (w >= h) {
+      const sw = w * frac;
+      out.push({ ...nodes[0], x, y, w: sw, h });
+      slice(nodes.slice(1), x + sw, y, w - sw, h, tv - nodes[0].value);
+    } else {
+      const sh = h * frac;
+      out.push({ ...nodes[0], x, y, w, h: sh });
+      slice(nodes.slice(1), x, y + sh, w, h - sh, tv - nodes[0].value);
+    }
+  }
+  const total = sorted.reduce((s, d) => s + d.value, 0);
+  slice(sorted, 0, 0, W, H, total);
+  return out;
+}
+
+function fmtBudget(m) {
+  if (m >= 1000) return '$' + (m / 1000).toFixed(1).replace(/\.0$/, '') + 'B';
+  return '$' + m.toLocaleString() + 'M';
+}
+
+// ── Toggle budget panel ────────────────────────────────────────────────────────
+let _openBudget = null;
+
+function toggleBudget(j) {
+  const panel = document.getElementById('budget-panel');
+  const card  = document.getElementById('bc-' + j);
+
+  if (_openBudget === j) {
+    card.classList.remove('open');
+    panel.classList.remove('open');
+    _openBudget = null;
+    return;
+  }
+
+  if (_openBudget) document.getElementById('bc-' + _openBudget)?.classList.remove('open');
+  card.classList.add('open');
+  _openBudget = j;
+
+  const data = BUDGETS[j];
+  document.getElementById('budget-panel-title').textContent = data.label;
+  panel.classList.add('open');
+
+  // Treemap
+  const wrap = document.getElementById('treemap-wrap');
+  wrap.innerHTML = '';
+  const W = wrap.clientWidth || 864;
+  const H = 220;
+  const blocks = computeTreemap(data.items, W, H);
+  const total  = data.items.reduce((s, d) => s + d.value, 0);
+  const tooltip = document.getElementById('tm-tooltip');
+
+  blocks.forEach(b => {
+    const el = document.createElement('div');
+    el.className = 'tm-block';
+    el.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${b.color};`;
+    const pct = ((b.value / total) * 100).toFixed(1);
+    const lbl = document.createElement('div');
+    lbl.className = 'tm-label';
+    lbl.textContent = (b.w > 55 && b.h > 26) ? b.name : '';
+    el.appendChild(lbl);
+    el.addEventListener('mousemove', e => {
+      tooltip.innerHTML = `<strong>${b.name}</strong><br>${fmtBudget(b.value)} &nbsp; ${pct}%`;
+      tooltip.classList.add('show');
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 42) + 'px';
+    });
+    el.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+    wrap.appendChild(el);
+  });
+
+  // List
+  const maxVal = Math.max(...data.items.map(d => d.value));
+  const list = document.getElementById('budget-list');
+  list.innerHTML = data.items
+    .slice()
+    .sort((a, b) => b.value - a.value)
+    .map(d => `
+      <li class="bli">
+        <span class="bli-dot" style="background:${d.color}"></span>
+        <span class="bli-name">${d.name}</span>
+        <span class="bli-track"><span class="bli-fill" style="width:${(d.value / maxVal * 100).toFixed(1)}%;background:${d.color}"></span></span>
+        <span class="bli-amt">${fmtBudget(d.value)}</span>
+      </li>`)
+    .join('');
+}
+
+// ── Revenue data ──────────────────────────────────────────────────────────────
+const REVENUES = {
+  city: {
+    label: 'City of Chicago — FY2025 All-Funds Revenue (~$16.2B)',
+    items: [
+      { name: 'Federal Grants & Aid',                                   value: 3420, color: '#2778d2' },
+      { name: 'Other Revenue & Fund Balances',                          value: 4780, color: '#6aabf5' },
+      { name: 'Property Tax Levy',                                      value: 1700, color: '#00296b' },
+      { name: 'TIF Increment Taxes',                                    value: 1450, color: '#1a65b9' },
+      { name: 'Other Local Taxes (hotel, amusement, parking, utility)', value: 1380, color: '#4491eb' },
+      { name: 'Sales Tax (city portion)',                               value: 1180, color: '#003F87' },
+      { name: 'Water & Sewer Fees',                                     value: 1050, color: '#0d52a0' },
+      { name: 'State Revenue Sharing',                                  value: 760,  color: '#8fc4ff' },
+      { name: 'Fines, Licenses & Permits',                              value: 480,  color: '#cce5ff' },
+    ]
+  },
+  county: {
+    label: 'Cook County — FY2025 All-Funds Revenue (~$8.7B)',
+    items: [
+      { name: 'Federal Medicaid Reimbursements',     value: 3200, color: '#0d6636' },
+      { name: 'Other Federal & State Grants',        value: 950,  color: '#1b9650' },
+      { name: 'Patient Revenue (Cook County Health)',value: 980,  color: '#064e29' },
+      { name: 'Property Tax Levy (county portion)',  value: 880,  color: '#147e43' },
+      { name: 'Sales Tax (county portion)',          value: 680,  color: '#22ae5d' },
+      { name: 'State Revenue',                      value: 570,  color: '#58d688' },
+      { name: 'Fees, Fines & Forfeitures',          value: 380,  color: '#80e8a4' },
+      { name: 'Other Revenue & Interest',           value: 720,  color: '#a8f0c0' },
+      { name: 'Interest & Miscellaneous',           value: 340,  color: '#c2fad6' },
+    ]
+  },
+  state: {
+    label: 'State of Illinois — FY2025 General Funds Revenue (~$53.3B)',
+    items: [
+      { name: 'Personal Income Tax (net to General Funds)', value: 26507, color: '#1a0540' },
+      { name: 'Sales Taxes (net to General Funds)',         value: 10907, color: '#420f98' },
+      { name: 'Corporate Income Tax (net)',                 value: 5378,  color: '#2d0a6e' },
+      { name: 'Other State Taxes (utility, estate, insurance, etc.)', value: 3904, color: '#be8fff' },
+      { name: 'Federal Sources',                           value: 4024,  color: '#5a18be' },
+      { name: 'Transfers In (Lottery, Gaming, Cannabis)',  value: 2561,  color: '#a060f8' },
+    ]
+  }
+};
+
+// ── Toggle revenue panel ───────────────────────────────────────────────────────
+let _openRevenue = null;
+
+function toggleRevenue(j) {
+  const panel = document.getElementById('revenue-panel');
+  const card  = document.getElementById('rc-' + j);
+
+  if (_openRevenue === j) {
+    card.classList.remove('open');
+    panel.classList.remove('open');
+    _openRevenue = null;
+    return;
+  }
+
+  if (_openRevenue) document.getElementById('rc-' + _openRevenue)?.classList.remove('open');
+  card.classList.add('open');
+  _openRevenue = j;
+
+  const data = REVENUES[j];
+  document.getElementById('revenue-panel-title').textContent = data.label;
+  panel.classList.add('open');
+
+  const wrap = document.getElementById('revenue-treemap-wrap');
+  wrap.innerHTML = '';
+  const W = wrap.clientWidth || 864;
+  const H = 220;
+  const blocks = computeTreemap(data.items, W, H);
+  const total  = data.items.reduce((s, d) => s + d.value, 0);
+  const tooltip = document.getElementById('tm-tooltip');
+
+  blocks.forEach(b => {
+    const el = document.createElement('div');
+    el.className = 'tm-block';
+    el.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${b.color};`;
+    const pct = ((b.value / total) * 100).toFixed(1);
+    const lbl = document.createElement('div');
+    lbl.className = 'tm-label';
+    lbl.textContent = (b.w > 55 && b.h > 26) ? b.name : '';
+    el.appendChild(lbl);
+    el.addEventListener('mousemove', e => {
+      tooltip.innerHTML = `<strong>${b.name}</strong><br>${fmtBudget(b.value)} &nbsp; ${pct}%`;
+      tooltip.classList.add('show');
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 42) + 'px';
+    });
+    el.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+    wrap.appendChild(el);
+  });
+
+  const maxVal = Math.max(...data.items.map(d => d.value));
+  const list = document.getElementById('revenue-list');
+  list.innerHTML = data.items
+    .slice()
+    .sort((a, b) => b.value - a.value)
+    .map(d => `
+      <li class="bli">
+        <span class="bli-dot" style="background:${d.color}"></span>
+        <span class="bli-name">${d.name}</span>
+        <span class="bli-track"><span class="bli-fill" style="width:${(d.value / maxVal * 100).toFixed(1)}%;background:${d.color}"></span></span>
+        <span class="bli-amt">${fmtBudget(d.value)}</span>
+      </li>`)
+    .join('');
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+renderDomains();
+updateLegend();
+</script>
+</body>
+</html>
