@@ -33,6 +33,30 @@ def app_page():
     ))
 
 
+@bp.route("/know-your-block")
+def know_your_block_page():
+    return _no_cache(send_from_directory(
+        os.path.join(_PROJECT_ROOT, "static"),
+        "know-your-block.html"
+    ))
+
+
+@bp.route("/neighborhood-map")
+def neighborhood_map():
+    return _no_cache(send_from_directory(
+        os.path.join(_PROJECT_ROOT, "static", "neighborhood-map"),
+        "index.html"
+    ))
+
+
+@bp.route("/neighborhood-map/<path:filename>")
+def neighborhood_map_assets(filename):
+    return send_from_directory(
+        os.path.join(_PROJECT_ROOT, "static", "neighborhood-map"),
+        filename
+    )
+
+
 @bp.route("/analyses")
 def analyses_index():
     return redirect("/")
@@ -43,6 +67,14 @@ def who_controls_chicago():
     return _no_cache(send_from_directory(
         os.path.join(_PROJECT_ROOT, "static", "analyses"),
         "who-controls-chicago.html"
+    ))
+
+
+@bp.route("/analyses/jurisdiction-domain-map")
+def jurisdiction_domain_map():
+    return _no_cache(send_from_directory(
+        os.path.join(_PROJECT_ROOT, "static", "analyses"),
+        "jurisdiction-domain-map.html"
     ))
 
 
