@@ -120,25 +120,6 @@
     }
     .request-thanks.show { display: block; }
 
-    /* Static services preview */
-    #services-preview { margin-top: 36px; display: none; }
-    #services-preview h3 {
-      font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
-      color: #003F87; margin-bottom: 16px; border-bottom: 2px solid #e8ecf4; padding-bottom: 7px;
-    }
-    .preview-section { margin-bottom: 20px; }
-    .preview-section h4 {
-      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.4px; color: #555; margin-bottom: 8px;
-    }
-    .preview-item {
-      background: #f8fafc; border: 1px solid #dde3ed; border-radius: 8px;
-      padding: 10px 12px; margin-bottom: 6px; font-size: 0.82rem; color: #333; line-height: 1.5;
-    }
-    .preview-item strong { color: #1a1a2e; }
-    .preview-empty { font-size: 0.82rem; color: #999; font-style: italic; }
-    #preview-loading { font-size: 0.85rem; color: #666; padding: 8px 0; }
-
     footer {
       border-top: 1px solid #dde3ed; padding: 20px 24px;
       text-align: center; font-size: 0.8rem; color: #888;
@@ -178,7 +159,7 @@
       <div class="field">
         <label for="bb-address">Your Chicago address</label>
         <div class="search-input-wrap">
-          <input type="text" id="bb-address" placeholder="e.g. 1330 W Monroe St" autocomplete="off" />
+          <input type="text" id="bb-address" placeholder="e.g. 2135 W Division St" autocomplete="off" />
           <div id="ac-dropdown" class="ac-dropdown"></div>
         </div>
         <div class="hint">Enter a full street address including number and street name.</div>
@@ -247,23 +228,21 @@
         </div>
       </div>
 
-      <button class="btn-subscribe" id="btn-subscribe">Subscribe — it's free</button>
-      <div class="form-msg" id="form-msg"></div>
-
       <div class="request-box">
         <label for="feature-input">What else would you like to see?</label>
         <div class="sub-label">Suggest a data source or topic — press Enter to submit</div>
         <textarea id="feature-input" placeholder="e.g. school ratings, park programming schedules, noise complaints…" rows="2"></textarea>
         <div class="request-thanks" id="request-thanks">Thanks — we'll work on adding this in the future.</div>
       </div>
+
+      <button class="btn-subscribe" id="btn-subscribe">Subscribe — it's free</button>
+      <div class="form-msg" id="form-msg"></div>
+      <div id="confirm-check" style="display:none;margin-top:14px;align-items:center;gap:10px;padding:12px 16px;background:#eaf6ea;border:1px solid #78c878;border-radius:8px;">
+        <span style="font-size:1.4rem;color:#2e7d32;">✓</span>
+        <span style="font-size:0.9rem;color:#1a5c1a;line-height:1.5;">Check your email to confirm your subscription.</span>
+      </div>
     </div>
 
-    <!-- Static services preview (loads when address is typed) -->
-    <div id="services-preview">
-      <h3>What's on your block right now</h3>
-      <div id="preview-loading">Loading nearby services…</div>
-      <div id="preview-content"></div>
-    </div>
   </main>
 
   <footer>
@@ -276,8 +255,6 @@
     const addrInput = document.getElementById('bb-address');
     const dropdown  = document.getElementById('ac-dropdown');
     let _acTimer = null, _acActiveIdx = -1, _acItems = [];
-    let _previewTimer = null;
-    let _geocodedAddr = null; // last address that triggered a preview fetch
 
     function closeDropdown() { dropdown.classList.remove('open'); _acActiveIdx = -1; _acItems = []; }
     function renderDropdown(addresses) {
@@ -293,7 +270,6 @@
       if (_acItems[idx]) {
         addrInput.value = _acItems[idx];
         closeDropdown();
-        schedulePreview();
       }
     }
     function updateActive(idx) {
@@ -308,7 +284,6 @@
       _acTimer = setTimeout(async () => {
         try { renderDropdown(await (await fetch(`/api/address-complete?q=${encodeURIComponent(q)}`)).json()); }
         catch { closeDropdown(); }
-        schedulePreview();
       }, 280);
     });
 
@@ -317,7 +292,7 @@
       else if (e.key === 'ArrowUp')   { e.preventDefault(); updateActive(Math.max(_acActiveIdx - 1, 0)); }
       else if (e.key === 'Enter') {
         if (_acActiveIdx >= 0 && _acItems[_acActiveIdx]) { e.preventDefault(); selectItem(_acActiveIdx); }
-        else { closeDropdown(); schedulePreview(); }
+        else { closeDropdown(); }
       } else if (e.key === 'Escape') { closeDropdown(); }
     });
     document.addEventListener('click', e => { if (!e.target.closest('.search-input-wrap')) closeDropdown(); });
@@ -327,100 +302,6 @@
       const cb = item.querySelector('input[type="checkbox"]');
       cb.addEventListener('change', () => item.classList.toggle('checked', cb.checked));
     });
-
-    // ── Static services preview ──
-    function schedulePreview() {
-      clearTimeout(_previewTimer);
-      _previewTimer = setTimeout(fetchPreview, 600);
-    }
-
-    async function fetchPreview() {
-      const addr = addrInput.value.trim();
-      if (addr.length < 6 || addr === _geocodedAddr) return;
-      _geocodedAddr = addr;
-
-      const radius = document.getElementById('bb-radius').value;
-      const preview = document.getElementById('services-preview');
-      const loading = document.getElementById('preview-loading');
-      const content = document.getElementById('preview-content');
-
-      preview.style.display = 'block';
-      loading.style.display = 'block';
-      content.innerHTML = '';
-
-      try {
-        const res = await fetch(`/api/block-brief/services?address=${encodeURIComponent(addr)}&radius_mi=${radius}`);
-        const data = await res.json();
-        loading.style.display = 'none';
-        if (data.error) return;
-        renderPreview(content, data);
-      } catch {
-        loading.style.display = 'none';
-      }
-    }
-
-    function renderPreview(el, data) {
-      const sections = [];
-
-      // Libraries
-      if (data.libraries?.length) {
-        sections.push(renderSection('Libraries', data.libraries.map(r =>
-          `<strong>${r.name || 'Library'}</strong>${r.address ? ' — ' + r.address : ''}${r.hours_of_operation ? '<br><span style="color:#666">' + r.hours_of_operation + '</span>' : ''}`
-        )));
-      }
-
-      // CPS Schools
-      if (data.cps_schools?.length) {
-        sections.push(renderSection('CPS Schools', data.cps_schools.map(r =>
-          `<strong>${r.school_nm || 'School'}</strong>${r.grades ? ' · Grades ' + r.grades : ''}${r.address ? '<br>' + r.address : ''}`
-        )));
-      }
-
-      // CTA Bus Stops
-      if (data.cta_bus_stops?.length) {
-        const stops = data.cta_bus_stops.slice(0, 5);
-        sections.push(renderSection('CTA Bus Stops', stops.map(r =>
-          `<strong>${r.stop_name || 'Stop'}</strong>${r.routesstpg ? ' — Routes ' + r.routesstpg : ''}${r.street ? '<br>' + r.street + (r.cross_st ? ' & ' + r.cross_st : '') : ''}`
-        )));
-      }
-
-      // CTA L Stops
-      if (data.cta_l_stops?.length) {
-        const lines = { red: 'Red', blue: 'Blue', g: 'Green', brn: 'Brown', p: 'Purple', y: 'Yellow', pnk: 'Pink', o: 'Orange' };
-        sections.push(renderSection('CTA L Stops', data.cta_l_stops.slice(0, 4).map(r => {
-          const activeLines = Object.entries(lines).filter(([k]) => r[k] === 'true' || r[k] === true).map(([, v]) => v);
-          return `<strong>${r.stop_name || r.station_name || 'L Stop'}</strong>${activeLines.length ? ' — ' + activeLines.join(', ') + ' line' + (activeLines.length > 1 ? 's' : '') : ''}`;
-        })));
-      }
-
-      // Farmers Markets
-      if (data.farmers_markets?.length) {
-        sections.push(renderSection('Farmers Markets', data.farmers_markets.map(r =>
-          `<strong>${r.market_name || 'Market'}</strong>${r.location_description ? ' — ' + r.location_description : ''}${r.days_hours ? '<br><span style="color:#666">' + r.days_hours + '</span>' : ''}`
-        )));
-      }
-
-      // Speed & Red Light Cameras
-      const cameras = [];
-      (data.speed_cameras || []).forEach(r => cameras.push(`Speed camera: ${r.address || ''}`));
-      (data.red_light_cameras || []).forEach(r => cameras.push(`Red light camera: ${r.intersection || r.address || ''}`));
-      if (cameras.length) {
-        sections.push(renderSection('Traffic Cameras', cameras.map(c => `<strong>${c}</strong>`)));
-      }
-
-      if (!sections.length) {
-        el.innerHTML = '<p class="preview-empty">No services found in this area. Try a different address or larger radius.</p>';
-      } else {
-        el.innerHTML = sections.join('');
-      }
-    }
-
-    function renderSection(title, items) {
-      return `<div class="preview-section">
-        <h4>${title}</h4>
-        ${items.slice(0, 6).map(h => `<div class="preview-item">${h}</div>`).join('')}
-      </div>`;
-    }
 
     // ── Subscribe ──
     document.getElementById('btn-subscribe').addEventListener('click', async () => {
@@ -449,8 +330,9 @@
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          showMsg('success', 'Check your email to confirm your subscription. Once confirmed, you\'ll get a welcome email with what\'s available near your block, then weekly updates every Monday.');
           btn.textContent = 'Subscribed!';
+          const check = document.getElementById('confirm-check');
+          check.style.display = 'flex';
         } else {
           showMsg('error', data.error || 'Something went wrong. Please try again.');
           btn.disabled = false;
@@ -475,12 +357,6 @@
       const addr = params.get('address') || 'your address';
       showMsg('success', `You're confirmed! Your welcome email for ${decodeURIComponent(addr)} is on its way. Weekly updates start next Monday.`);
     }
-
-    // Update preview when radius changes
-    document.getElementById('bb-radius').addEventListener('change', () => {
-      _geocodedAddr = null;
-      schedulePreview();
-    });
 
     // ── Feature request box ──
     document.getElementById('feature-input').addEventListener('keydown', e => {
