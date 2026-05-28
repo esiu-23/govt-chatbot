@@ -16,7 +16,30 @@
       "Bash(psql \"postgresql://postgres.ghtswlvrnukaecgxgeib:aL%26hxeW45g7cUP5@aws-1-us-east-1.pooler.supabase.com:5432/postgres\" -c \"\\\\dt\")",
       "Bash(python -c \"import backfill_no_matter_summaries; print\\('syntax OK'\\)\")",
       "Bash(git push *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(sqlite3 replica.db \"SELECT DISTINCT status FROM matters ORDER BY status;\")",
+      "Bash(psql \"postgresql://postgres.ghtswlvrnukaecgxgeib:aL&hxeW45g7cUP5@aws-1-us-east-1.pooler.supabase.com:5432/postgres\" -c \"SELECT DISTINCT status FROM matters ORDER BY status;\")",
+      "Bash(python3)",
+      "Bash(chmod +x /tmp/search_all.sh)",
+      "Bash(bash /tmp/search_all.sh)",
+      "WebFetch(domain:www.cookcountyil.gov)",
+      "WebFetch(domain:www.cookcountyclerkil.gov)",
+      "WebFetch(domain:www.cookcountyassessoril.gov)",
+      "WebFetch(domain:hub-cookcountyil.opendata.arcgis.com)",
+      "WebFetch(domain:www.cookcountystatesattorney.org)",
+      "Bash(curl -sI 'https://data.illinois.gov/resource/xhfg-cwx7.json?$limit=1')",
+      "Bash(psql \"postgresql://postgres.ghtswlvrnukaecgxgeib:aL&hxeW45g7cUP5@aws-1-us-east-1.pooler.supabase.com:5432/postgres\" -c \"SELECT COUNT\\(DISTINCT email\\), string_agg\\(DISTINCT email, E'\\\\n'\\) FROM subscriptions;\")",
+      "WebFetch(domain:cgfa.ilga.gov)",
+      "Bash(brew install *)",
+      "Bash(brew uninstall *)",
+      "Bash(file \"/Users/esiu/Desktop/2025/chi govt research/govt-chatbot/static/neighborhood-map/assets\"/*.js)",
+      "Bash(git -C \"/Users/esiu/Desktop/2025/chi govt research/govt-chatbot\" status --short)",
+      "Bash(git -C \"/Users/esiu/Desktop/2025/chi govt research/govt-chatbot\" branch --show-current)",
+      "Bash(ps -p 7498,7533 -o pid,command)",
+      "Bash(kill 7498 7533)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }
