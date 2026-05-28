@@ -236,3 +236,25 @@ CREATE TABLE IF NOT EXISTS il_document_summaries (
     summary    TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ---------------------------------------------------------------------------
+-- Block Brief subscriptions
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS block_brief_subscriptions (
+    id             SERIAL PRIMARY KEY,
+    email          TEXT NOT NULL,
+    address        TEXT NOT NULL,
+    lat            REAL NOT NULL,
+    lng            REAL NOT NULL,
+    radius_mi      REAL NOT NULL DEFAULT 0.5,
+    preferences    JSONB NOT NULL DEFAULT '[]',
+    confirmed      BOOLEAN NOT NULL DEFAULT FALSE,
+    confirm_token  TEXT UNIQUE,
+    unsubscribe_token TEXT UNIQUE,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_sent_at   TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS block_brief_email_address_idx
+    ON block_brief_subscriptions(email, address);
+CREATE INDEX IF NOT EXISTS block_brief_confirmed_idx
+    ON block_brief_subscriptions(confirmed, last_sent_at);

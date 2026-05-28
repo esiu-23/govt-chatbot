@@ -4,7 +4,7 @@ import threading
 from flask import Flask, request
 from flask import redirect, url_for
 
-from .routes import pages, chat, legislation, meetings, subscriptions, illinois_legislation
+from .routes import pages, chat, legislation, meetings, subscriptions, illinois_legislation, know_your_block, block_brief
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -60,5 +60,7 @@ def create_app() -> Flask:
     app.register_blueprint(illinois_legislation.bp)
     app.register_blueprint(meetings.bp)
     app.register_blueprint(subscriptions.bp)
+    app.register_blueprint(know_your_block.bp)
+    app.register_blueprint(block_brief.bp)
 
     return app

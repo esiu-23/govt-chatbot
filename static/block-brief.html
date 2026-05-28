@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Block Brief — Weekly Block Newsletter | Chicago Civic Tools</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f7fa; color: #1a1a2e; min-height: 100vh; display: flex; flex-direction: column;
+    }
+
+    header { background: #003F87; color: #fff; }
+    .flag-bar { display: flex; height: 5px; }
+    .flag-bar .blue  { background: #003F87; flex: 1; }
+    .flag-bar .white { background: #fff; flex: 1; }
+    .flag-bar .red   { background: #c8102e; flex: 1; }
+    .header-inner {
+      max-width: 660px; margin: 0 auto; padding: 18px 24px 16px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .header-text { flex: 1; }
+    .header-inner h1 { font-size: 1.2rem; font-weight: 700; }
+    .header-inner p  { font-size: 0.78rem; opacity: 0.75; margin-top: 2px; }
+    .header-inner a  { color: rgba(255,255,255,0.65); text-decoration: none; font-size: 0.82rem; }
+    .header-inner a:hover { color: #fff; }
+
+    main { flex: 1; max-width: 660px; width: 100%; margin: 0 auto; padding: 40px 24px 64px; }
+
+    .intro { margin-bottom: 32px; }
+    .intro h2 { font-size: 1.4rem; font-weight: 700; color: #003F87; margin-bottom: 8px; }
+    .intro p  { font-size: 0.95rem; color: #555; line-height: 1.65; }
+
+    /* Form card */
+    .form-card {
+      background: #fff; border: 1px solid #dde3ed; border-radius: 12px;
+      padding: 28px 28px 32px;
+    }
+
+    .field { margin-bottom: 20px; }
+    .field label { display: block; font-size: 0.83rem; font-weight: 600; color: #333; margin-bottom: 6px; }
+
+    .search-input-wrap { position: relative; }
+    .field input[type="text"],
+    .field input[type="email"] {
+      width: 100%; padding: 10px 13px;
+      border: 1px solid #ccd3df; border-radius: 8px;
+      font-size: 0.92rem; outline: none; background: #fff;
+    }
+    .field input:focus { border-color: #003F87; box-shadow: 0 0 0 3px rgba(0,63,135,0.12); }
+    .field .hint { font-size: 0.78rem; color: #888; margin-top: 5px; }
+
+    /* Autocomplete */
+    .ac-dropdown {
+      display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+      background: #fff; border: 1px solid #ccd3df; border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12); z-index: 1000; overflow: hidden;
+    }
+    .ac-dropdown.open { display: block; }
+    .ac-item { padding: 9px 13px; font-size: 0.85rem; cursor: pointer; }
+    .ac-item:hover, .ac-item.active { background: #e8eff9; }
+
+    /* Category grid */
+    .categories-label { font-size: 0.83rem; font-weight: 600; color: #333; margin-bottom: 10px; }
+    .category-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .category-item {
+      display: flex; align-items: flex-start; gap: 9px;
+      background: #f8fafc; border: 1px solid #dde3ed; border-radius: 8px;
+      padding: 11px 13px; cursor: pointer; transition: border-color 0.12s, background 0.12s;
+    }
+    .category-item:hover { border-color: #003F87; background: #f0f5fc; }
+    .category-item input[type="checkbox"] { margin-top: 2px; accent-color: #003F87; flex-shrink: 0; }
+    .category-item.checked { border-color: #003F87; background: #eef4ff; }
+    .cat-label { font-size: 0.85rem; font-weight: 600; color: #1a1a2e; }
+    .cat-desc  { font-size: 0.76rem; color: #666; margin-top: 2px; }
+
+    /* Radius */
+    .radius-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+    .radius-row label { font-size: 0.83rem; font-weight: 600; color: #333; white-space: nowrap; }
+    .radius-row select {
+      padding: 8px 10px; border: 1px solid #ccd3df; border-radius: 8px;
+      font-size: 0.88rem; background: #fff; cursor: pointer; outline: none;
+    }
+    .radius-row select:focus { border-color: #003F87; box-shadow: 0 0 0 3px rgba(0,63,135,0.12); }
+
+    /* Submit button */
+    .btn-subscribe {
+      width: 100%; padding: 12px; background: #003F87; color: #fff;
+      border: none; border-radius: 8px; font-size: 1rem; font-weight: 600;
+      cursor: pointer; transition: background 0.15s; margin-top: 24px;
+    }
+    .btn-subscribe:hover { background: #002f65; }
+    .btn-subscribe:disabled { background: #8ba6c7; cursor: not-allowed; }
+
+    /* Feedback */
+    .form-msg {
+      display: none; margin-top: 16px; padding: 13px 16px; border-radius: 8px;
+      font-size: 0.9rem; line-height: 1.5;
+    }
+    .form-msg.success { background: #eaf6ea; border: 1px solid #78c878; color: #1a5c1a; display: block; }
+    .form-msg.error   { background: #fff0f0; border: 1px solid #f08080; color: #8b1a1a; display: block; }
+
+    /* Feature request box */
+    .request-box { margin-top: 28px; }
+    .request-box label { display: block; font-size: 0.83rem; font-weight: 600; color: #333; margin-bottom: 6px; }
+    .request-box .sub-label { font-size: 0.78rem; color: #888; margin-bottom: 8px; }
+    #feature-input {
+      width: 100%; padding: 10px 13px; border: 1px solid #ccd3df; border-radius: 8px;
+      font-size: 0.88rem; outline: none; background: #fff; resize: none; min-height: 56px;
+      font-family: inherit;
+    }
+    #feature-input:focus { border-color: #003F87; box-shadow: 0 0 0 3px rgba(0,63,135,0.12); }
+    .request-thanks {
+      display: none; margin-top: 8px; font-size: 0.82rem; color: #2e7d32;
+      background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px;
+      padding: 7px 12px;
+    }
+    .request-thanks.show { display: block; }
+
+    footer {
+      border-top: 1px solid #dde3ed; padding: 20px 24px;
+      text-align: center; font-size: 0.8rem; color: #888;
+    }
+    footer a { color: #888; }
+    footer a:hover { color: #003F87; }
+
+    @media (max-width: 540px) {
+      .category-grid { grid-template-columns: 1fr; }
+      .form-card { padding: 20px 16px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="flag-bar">
+      <div class="blue"></div><div class="white"></div><div class="blue"></div>
+      <div class="white"></div><div class="red"></div><div class="white"></div>
+    </div>
+    <div class="header-inner">
+      <div class="header-text">
+        <h1>Block Brief</h1>
+        <p>Your weekly neighborhood update</p>
+      </div>
+      <a href="/">← All tools</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="intro">
+      <h2>Stay informed about your block</h2>
+      <p>Enter your Chicago address and choose what you care about. Every Monday, we'll send you a digest of what's happening within a few blocks of your home — drawn directly from Chicago Open Data.</p>
+    </div>
+
+    <div class="form-card">
+      <div class="field">
+        <label for="bb-address">Your Chicago address</label>
+        <div class="search-input-wrap">
+          <input type="text" id="bb-address" placeholder="e.g. 2135 W Division St" autocomplete="off" />
+          <div id="ac-dropdown" class="ac-dropdown"></div>
+        </div>
+        <div class="hint">Enter a full street address including number and street name.</div>
+      </div>
+
+      <div class="field">
+        <label for="bb-email">Your email address</label>
+        <input type="email" id="bb-email" placeholder="you@example.com" />
+      </div>
+
+      <div class="radius-row">
+        <label for="bb-radius">Radius</label>
+        <select id="bb-radius">
+          <option value="0.25">¼ mile</option>
+          <option value="0.5" selected>½ mile</option>
+          <option value="1.0">1 mile</option>
+        </select>
+        <span style="font-size:0.8rem;color:#888;">around your address</span>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <div class="categories-label">What would you like updates on?</div>
+        <div class="category-grid" id="category-grid">
+          <label class="category-item checked">
+            <input type="checkbox" name="pref" value="safety" checked />
+            <div>
+              <div class="cat-label">Safety &amp; Crime</div>
+              <div class="cat-desc">CPD incidents, traffic crashes</div>
+            </div>
+          </label>
+          <label class="category-item checked">
+            <input type="checkbox" name="pref" value="food" checked />
+            <div>
+              <div class="cat-label">Restaurants &amp; Food</div>
+              <div class="cat-desc">Health inspections, new eateries</div>
+            </div>
+          </label>
+          <label class="category-item checked">
+            <input type="checkbox" name="pref" value="construction" checked />
+            <div>
+              <div class="cat-label">Construction &amp; Permits</div>
+              <div class="cat-desc">Building permits, violations, street closures</div>
+            </div>
+          </label>
+          <label class="category-item checked">
+            <input type="checkbox" name="pref" value="services" checked />
+            <div>
+              <div class="cat-label">City Services</div>
+              <div class="cat-desc">311 requests, potholes, streetlights</div>
+            </div>
+          </label>
+          <label class="category-item checked">
+            <input type="checkbox" name="pref" value="business" checked />
+            <div>
+              <div class="cat-label">Business Openings &amp; Closings</div>
+              <div class="cat-desc">New licenses, closures, liquor licenses</div>
+            </div>
+          </label>
+          <label class="category-item checked">
+            <input type="checkbox" name="pref" value="parks" checked />
+            <div>
+              <div class="cat-label">Parks &amp; Events</div>
+              <div class="cat-desc">Park events, block parties, farmers markets</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="request-box">
+        <label for="feature-input">What else would you like to see?</label>
+        <div class="sub-label">Suggest a data source or topic — press Enter to submit</div>
+        <textarea id="feature-input" placeholder="e.g. school ratings, park programming schedules, noise complaints…" rows="2"></textarea>
+        <div class="request-thanks" id="request-thanks">Thanks — we'll work on adding this in the future.</div>
+      </div>
+
+      <button class="btn-subscribe" id="btn-subscribe">Subscribe — it's free</button>
+      <div class="form-msg" id="form-msg"></div>
+      <div id="confirm-check" style="display:none;margin-top:14px;align-items:center;gap:10px;padding:12px 16px;background:#eaf6ea;border:1px solid #78c878;border-radius:8px;">
+        <span style="font-size:1.4rem;color:#2e7d32;">✓</span>
+        <span style="font-size:0.9rem;color:#1a5c1a;line-height:1.5;">Check your email to confirm your subscription.</span>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    Data from <a href="https://data.cityofchicago.org" target="_blank" rel="noreferrer">Chicago Open Data Portal</a>
+    &amp; <a href="https://nominatim.openstreetmap.org" target="_blank" rel="noreferrer">OpenStreetMap Nominatim</a>
+  </footer>
+
+  <script>
+    // ── Autocomplete ──
+    const addrInput = document.getElementById('bb-address');
+    const dropdown  = document.getElementById('ac-dropdown');
+    let _acTimer = null, _acActiveIdx = -1, _acItems = [];
+
+    function closeDropdown() { dropdown.classList.remove('open'); _acActiveIdx = -1; _acItems = []; }
+    function renderDropdown(addresses) {
+      _acItems = addresses; _acActiveIdx = -1;
+      if (!addresses.length) { closeDropdown(); return; }
+      dropdown.innerHTML = addresses.map((a, i) => `<div class="ac-item" data-idx="${i}">${a}</div>`).join('');
+      dropdown.querySelectorAll('.ac-item').forEach(el =>
+        el.addEventListener('mousedown', e => { e.preventDefault(); selectItem(parseInt(el.dataset.idx)); })
+      );
+      dropdown.classList.add('open');
+    }
+    function selectItem(idx) {
+      if (_acItems[idx]) {
+        addrInput.value = _acItems[idx];
+        closeDropdown();
+      }
+    }
+    function updateActive(idx) {
+      dropdown.querySelectorAll('.ac-item').forEach((el, i) => el.classList.toggle('active', i === idx));
+      _acActiveIdx = idx;
+    }
+
+    addrInput.addEventListener('input', () => {
+      clearTimeout(_acTimer);
+      const q = addrInput.value.trim();
+      if (q.length < 4) { closeDropdown(); return; }
+      _acTimer = setTimeout(async () => {
+        try { renderDropdown(await (await fetch(`/api/address-complete?q=${encodeURIComponent(q)}`)).json()); }
+        catch { closeDropdown(); }
+      }, 280);
+    });
+
+    addrInput.addEventListener('keydown', e => {
+      if      (e.key === 'ArrowDown') { e.preventDefault(); updateActive(Math.min(_acActiveIdx + 1, _acItems.length - 1)); }
+      else if (e.key === 'ArrowUp')   { e.preventDefault(); updateActive(Math.max(_acActiveIdx - 1, 0)); }
+      else if (e.key === 'Enter') {
+        if (_acActiveIdx >= 0 && _acItems[_acActiveIdx]) { e.preventDefault(); selectItem(_acActiveIdx); }
+        else { closeDropdown(); }
+      } else if (e.key === 'Escape') { closeDropdown(); }
+    });
+    document.addEventListener('click', e => { if (!e.target.closest('.search-input-wrap')) closeDropdown(); });
+
+    // ── Category checkbox UI ──
+    document.querySelectorAll('.category-item').forEach(item => {
+      const cb = item.querySelector('input[type="checkbox"]');
+      cb.addEventListener('change', () => item.classList.toggle('checked', cb.checked));
+    });
+
+    // ── Subscribe ──
+    document.getElementById('btn-subscribe').addEventListener('click', async () => {
+      const address = addrInput.value.trim();
+      const email   = document.getElementById('bb-email').value.trim();
+      const prefs   = Array.from(document.querySelectorAll('input[name="pref"]:checked')).map(cb => cb.value);
+      const radius  = parseFloat(document.getElementById('bb-radius').value);
+      const btn     = document.getElementById('btn-subscribe');
+      const msg     = document.getElementById('form-msg');
+
+      msg.className = 'form-msg';
+      msg.style.display = 'none';
+
+      if (!address) { showMsg('error', 'Please enter your address.'); return; }
+      if (!email || !email.includes('@')) { showMsg('error', 'Please enter a valid email address.'); return; }
+      if (!prefs.length) { showMsg('error', 'Please select at least one category.'); return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Subscribing…';
+
+      try {
+        const res = await fetch('/block-brief/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address, email, preferences: prefs, radius_mi: radius }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          btn.textContent = 'Subscribed!';
+          const check = document.getElementById('confirm-check');
+          check.style.display = 'flex';
+        } else {
+          showMsg('error', data.error || 'Something went wrong. Please try again.');
+          btn.disabled = false;
+          btn.textContent = 'Subscribe — it\'s free';
+        }
+      } catch {
+        showMsg('error', 'Network error. Please try again.');
+        btn.disabled = false;
+        btn.textContent = 'Subscribe — it\'s free';
+      }
+    });
+
+    function showMsg(type, text) {
+      const msg = document.getElementById('form-msg');
+      msg.className = 'form-msg ' + type;
+      msg.textContent = text;
+    }
+
+    // ── Handle ?confirmed=1 in URL (redirect from confirm endpoint) ──
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('confirmed') === '1') {
+      const addr = params.get('address') || 'your address';
+      showMsg('success', `You're confirmed! Your welcome email for ${decodeURIComponent(addr)} is on its way. Weekly updates start next Monday.`);
+    }
+
+    // ── Feature request box ──
+    document.getElementById('feature-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const val = e.target.value.trim();
+        if (!val) return;
+        document.getElementById('request-thanks').classList.add('show');
+        e.target.value = '';
+        e.target.disabled = true;
+      }
+    });
+  </script>
+</body>
+</html>

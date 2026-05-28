@@ -41,6 +41,14 @@ def know_your_block_page():
     ))
 
 
+@bp.route("/block-brief")
+def block_brief_page():
+    return _no_cache(send_from_directory(
+        os.path.join(_PROJECT_ROOT, "static"),
+        "block-brief.html"
+    ))
+
+
 @bp.route("/neighborhood-map")
 def neighborhood_map():
     return _no_cache(send_from_directory(

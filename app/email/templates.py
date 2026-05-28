@@ -350,3 +350,290 @@ def render_matter_update_email(
 </div>"""
 
     return subject, _shell("Legislation Update", plain_title, record_number, body_html, unsub_url)
+
+
+# ── Block Brief emails ────────────────────────────────────────────────────────
+
+def render_block_brief_confirm(address: str, confirm_url: str) -> str:
+    addr = _h(address)
+    url  = _h(confirm_url)
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #f5f7fa; margin: 0; padding: 0; color: #1a1a2e; }}
+  .wrap {{ max-width: 560px; margin: 32px auto; background: #fff;
+           border: 1px solid #dde3ed; border-radius: 10px; overflow: hidden; }}
+  .hdr  {{ background: #003F87; color: #fff; padding: 24px 28px; }}
+  .hdr h1 {{ font-size: 18px; margin: 0; }}
+  .hdr p  {{ font-size: 13px; opacity: 0.75; margin: 4px 0 0; }}
+  .body {{ padding: 28px; }}
+  .body p  {{ font-size: 15px; line-height: 1.65; color: #333; margin: 0 0 18px; }}
+  .btn  {{ display: inline-block; padding: 13px 28px; background: #003F87; color: #fff;
+           text-decoration: none; border-radius: 8px; font-size: 15px; font-weight: 600; }}
+  .foot {{ background: #f9f9f9; border-top: 1px solid #e5e5e5; padding: 14px 28px;
+           font-size: 12px; color: #888; text-align: center; }}
+</style></head><body>
+<div class="wrap">
+  <div class="hdr"><h1>Block Brief</h1><p>Your weekly neighborhood update</p></div>
+  <div class="body">
+    <p>Thanks for signing up! Confirm your subscription to start receiving weekly updates for <strong>{addr}</strong>.</p>
+    <p><a href="{url}" style="display:inline-block;padding:13px 28px;background:#003F87;color:#ffffff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600;">Confirm my subscription</a></p>
+    <p style="font-size:13px;color:#888;">If you didn't sign up, you can ignore this email.</p>
+  </div>
+  <div class="foot">Chicago Civic Tools &middot; <a href="https://thegovernmentandme.tools" style="color:#888;">thegovernmentandme.tools</a></div>
+</div>
+</body></html>"""
+
+
+def render_block_brief_welcome(address: str, lat: float, lng: float,
+                                prefs: list, services: dict, unsub_url: str) -> str:
+    addr     = _h(address)
+    unsub    = _h(unsub_url)
+    pref_set = set(prefs or [])
+
+    def _section(title: str, rows: list[str]) -> str:
+        if not rows:
+            return ""
+        items = "".join(f'<div class="item">{r}</div>' for r in rows[:6])
+        return f'<div class="section"><div class="section-title">{_h(title)}</div>{items}</div>'
+
+    sections_html = ""
+
+    libs = services.get("libraries") or []
+    if libs:
+        sections_html += _section("Libraries", [
+            f"<strong>{_h(r.get('name','Library'))}</strong>"
+            + (f" — {_h(r['address'])}" if r.get("address") else "")
+            + (f"<br><span style='color:#666'>{_h(r['hours_of_operation'])}</span>"
+               if r.get("hours_of_operation") else "")
+            for r in libs
+        ])
+
+    schools = services.get("cps_schools") or []
+    if schools:
+        sections_html += _section("CPS Schools", [
+            f"<strong>{_h(r.get('school_nm','School'))}</strong>"
+            + (f" · Grades {_h(r['grades'])}" if r.get("grades") else "")
+            + (f"<br>{_h(r['address'])}" if r.get("address") else "")
+            for r in schools
+        ])
+
+    buses = services.get("cta_bus_stops") or []
+    if buses:
+        sections_html += _section("CTA Bus Stops", [
+            f"<strong>{_h(r.get('stop_name','Stop'))}</strong>"
+            + (f" — Routes {_h(r['routesstpg'])}" if r.get("routesstpg") else "")
+            for r in buses[:5]
+        ])
+
+    l_stops = services.get("cta_l_stops") or []
+    if l_stops:
+        line_map = {"red":"Red","blue":"Blue","g":"Green","brn":"Brown",
+                    "p":"Purple","y":"Yellow","pnk":"Pink","o":"Orange"}
+        sections_html += _section("CTA L Stops", [
+            f"<strong>{_h(r.get('stop_name') or r.get('station_name','L Stop'))}</strong>"
+            + ((" — " + ", ".join(v for k,v in line_map.items() if str(r.get(k,'')).lower()=='true') + " line")
+               if any(str(r.get(k,'')).lower()=='true' for k in line_map) else "")
+            for r in l_stops[:4]
+        ])
+
+    cameras = []
+    for r in (services.get("speed_cameras") or []):
+        cameras.append(f"Speed camera: {_h(r.get('address',''))}")
+    for r in (services.get("red_light_cameras") or []):
+        cameras.append(f"Red light camera: {_h(r.get('intersection') or r.get('address',''))}")
+    if cameras:
+        sections_html += _section("Traffic Cameras", cameras)
+
+    markets = services.get("farmers_markets") or []
+    if markets:
+        sections_html += _section("Farmers Markets", [
+            f"<strong>{_h(r.get('market_name','Market'))}</strong>"
+            + (f" — {_h(r['location_description'])}" if r.get("location_description") else "")
+            + (f"<br><span style='color:#666'>{_h(r['days_hours'])}</span>" if r.get("days_hours") else "")
+            for r in markets
+        ])
+
+    prefs_display = ", ".join(sorted(pref_set)).replace("_", " ").title() if pref_set else "All categories"
+
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #f5f7fa; margin: 0; padding: 0; color: #1a1a2e; }}
+  .wrap {{ max-width: 600px; margin: 32px auto; background: #fff;
+           border: 1px solid #dde3ed; border-radius: 10px; overflow: hidden; }}
+  .hdr  {{ background: #003F87; color: #fff; padding: 24px 28px; }}
+  .hdr h1 {{ font-size: 18px; margin: 0; }}
+  .hdr p  {{ font-size: 13px; opacity: 0.75; margin: 4px 0 0; }}
+  .body {{ padding: 24px 28px; }}
+  .body > p {{ font-size: 15px; line-height: 1.65; color: #333; margin: 0 0 20px; }}
+  .section {{ margin-bottom: 22px; }}
+  .section-title {{ font-size: 11px; font-weight: 700; text-transform: uppercase;
+                    letter-spacing: 0.5px; color: #003F87; border-bottom: 1px solid #e8ecf4;
+                    padding-bottom: 5px; margin-bottom: 10px; }}
+  .item {{ background: #f8fafc; border: 1px solid #dde3ed; border-radius: 6px;
+           padding: 9px 12px; margin-bottom: 6px; font-size: 13px; line-height: 1.5; color: #333; }}
+  .meta {{ font-size: 13px; color: #666; margin: 0 0 18px; }}
+  .foot {{ background: #f9f9f9; border-top: 1px solid #e5e5e5; padding: 14px 28px;
+           font-size: 12px; color: #888; text-align: center; }}
+  .foot a {{ color: #888; }}
+</style></head><body>
+<div class="wrap">
+  <div class="hdr"><h1>Welcome to Block Brief</h1><p>{addr}</p></div>
+  <div class="body">
+    <p>You're all set! Here's what's available near your block. Starting next Monday, you'll receive a weekly digest of new activity in your neighborhood.</p>
+    <p class="meta">Tracking: {_h(prefs_display)}</p>
+    {sections_html if sections_html else '<p style="color:#888;font-style:italic;">No nearby services found yet — your weekly digest will include real-time activity as it happens.</p>'}
+  </div>
+  <div class="foot">
+    Chicago Civic Tools &middot; <a href="https://thegovernmentandme.tools">thegovernmentandme.tools</a><br>
+    <a href="{unsub}">Unsubscribe</a>
+  </div>
+</div>
+</body></html>"""
+
+
+def render_block_brief_weekly(address: str, prefs: list, signals: dict, unsub_url: str) -> str:
+    addr    = _h(address)
+    unsub   = _h(unsub_url)
+    pref_set = set(prefs or [])
+    today   = datetime.now().strftime("%B %-d, %Y")
+
+    _CSS_W = """
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #f5f7fa; margin: 0; padding: 0; color: #1a1a2e; }
+  .wrap { max-width: 600px; margin: 32px auto; background: #fff;
+          border: 1px solid #dde3ed; border-radius: 10px; overflow: hidden; }
+  .hdr  { background: #003F87; color: #fff; padding: 24px 28px; }
+  .hdr h1 { font-size: 18px; margin: 0; }
+  .hdr p  { font-size: 13px; opacity: 0.75; margin: 4px 0 0; }
+  .body { padding: 24px 28px; }
+  .section { margin-bottom: 26px; }
+  .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: 0.5px; color: #003F87; border-bottom: 2px solid #e8ecf4;
+                   padding-bottom: 5px; margin-bottom: 10px; }
+  .item { background: #f8fafc; border: 1px solid #dde3ed; border-radius: 6px;
+          padding: 9px 12px; margin-bottom: 6px; font-size: 13px; line-height: 1.5; color: #333; }
+  .item strong { color: #1a1a2e; }
+  .empty { font-size: 13px; color: #999; font-style: italic; }
+  .foot { background: #f9f9f9; border-top: 1px solid #e5e5e5; padding: 14px 28px;
+          font-size: 12px; color: #888; text-align: center; }
+  .foot a { color: #888; }
+"""
+
+    def _section(title: str, rows: list[str]) -> str:
+        if not rows:
+            return f'<div class="section"><div class="section-title">{_h(title)}</div><div class="empty">Nothing new this week.</div></div>'
+        items = "".join(f'<div class="item">{r}</div>' for r in rows[:10])
+        return f'<div class="section"><div class="section-title">{_h(title)}</div>{items}</div>'
+
+    sections_html = ""
+
+    if "safety" in pref_set:
+        crimes = signals.get("crimes") or []
+        sections_html += _section("Safety & Crime", [
+            f"<strong>{_h(r.get('primary_type',''))} — {_h(r.get('description',''))}</strong>"
+            f"<br>{_h(r.get('location_description',''))} · {_h((r.get('date') or '')[:10])}"
+            for r in crimes
+        ])
+        crashes = signals.get("traffic_crashes") or []
+        if crashes:
+            sections_html += _section("Traffic Crashes", [
+                f"<strong>{_h(r.get('crash_type','Crash'))}</strong>"
+                + (f" — {_h(r['injuries_total'])} injured" if r.get("injuries_total") and r["injuries_total"] != "0" else "")
+                + f"<br>{_h(r.get('street_name',''))} · {_h((r.get('crash_date') or '')[:10])}"
+                for r in crashes
+            ])
+
+    if "food" in pref_set:
+        inspections = signals.get("food_inspections") or []
+        sections_html += _section("Restaurant & Food Inspections", [
+            f"<strong>{_h(r.get('dba_name') or r.get('aka_name',''))}</strong> — {_h(r.get('results',''))}"
+            f"<br>{_h(r.get('address',''))} · {_h((r.get('inspection_date') or '')[:10])}"
+            for r in inspections
+        ])
+
+    if "construction" in pref_set:
+        permits = signals.get("building_permits") or []
+        sections_html += _section("Building Permits", [
+            f"<strong>{_h(r.get('permit_type','Permit'))}</strong>"
+            + (f" — {_h(r['work_description'][:80])}" if r.get("work_description") else "")
+            + f"<br>{_h(r.get('street_number',''))} {_h(r.get('street_direction',''))} {_h(r.get('street_name',''))} · {_h((r.get('application_start_date') or '')[:10])}"
+            for r in permits
+        ])
+        violations = signals.get("building_violations") or []
+        if violations:
+            sections_html += _section("Building Violations", [
+                f"<strong>{_h((r.get('violation_description') or '')[:80])}</strong>"
+                f"<br>{_h(r.get('address',''))} · {_h((r.get('violation_date') or '')[:10])}"
+                for r in violations
+            ])
+        closures = signals.get("street_closures") or []
+        if closures:
+            sections_html += _section("Street Closures", [
+                f"<strong>{_h(r.get('street_name',''))}</strong>"
+                + (f" from {_h(r['from_street'])} to {_h(r['to_street'])}" if r.get("from_street") else "")
+                + f"<br>{_h((r.get('permit_start_date') or '')[:10])} – {_h((r.get('permit_end_date') or '')[:10])}"
+                for r in closures
+            ])
+
+    if "services" in pref_set:
+        sr = signals.get("sr_requests") or []
+        sections_html += _section("311 Service Requests", [
+            f"<strong>{_h(r.get('sr_type','Request'))}</strong> — {_h(r.get('status',''))}"
+            f"<br>{_h(r.get('street_address',''))} · {_h((r.get('created_date') or '')[:10])}"
+            for r in sr
+        ])
+        potholes = signals.get("potholes_patched") or []
+        if potholes:
+            sections_html += _section("Potholes Patched", [
+                f"<strong>{_h(r.get('address',''))}</strong>"
+                + (f" — {_h(r['number_of_potholes_filled_on_block'])} filled" if r.get("number_of_potholes_filled_on_block") else "")
+                + f" · {_h((r.get('completion_date') or '')[:10])}"
+                for r in potholes
+            ])
+
+    if "business" in pref_set:
+        biz = signals.get("business_licenses") or []
+        sections_html += _section("New Business Licenses", [
+            f"<strong>{_h(r.get('doing_business_as_name') or r.get('legal_name',''))}</strong>"
+            + (f" — {_h(r['license_description'])}" if r.get("license_description") else "")
+            + f"<br>{_h(r.get('address',''))} · {_h((r.get('date_issued') or '')[:10])}"
+            for r in biz
+        ])
+
+    if "parks" in pref_set:
+        parties = signals.get("block_parties") or []
+        park_events = signals.get("park_events") or []
+        if parties or park_events:
+            rows = []
+            for r in parties:
+                rows.append(
+                    f"<strong>Block Party: {_h(r.get('streetname',''))}</strong>"
+                    f" · {_h((r.get('applicationstartdate') or '')[:10])}"
+                )
+            for e in park_events[:5]:
+                title = _h(e.get("event_title") or e.get("title") or "Park Event")
+                date  = _h((e.get("start_date") or e.get("date") or "")[:10])
+                rows.append(f"<strong>{title}</strong> · {date}")
+            sections_html += _section("Parks & Events", rows)
+
+    if not sections_html:
+        sections_html = '<p style="color:#888;font-style:italic;">No new activity near your block this week.</p>'
+
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>{_CSS_W}</style></head><body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Block Brief</h1>
+    <p>{addr} &middot; {today}</p>
+  </div>
+  <div class="body">
+    {sections_html}
+  </div>
+  <div class="foot">
+    Data from <a href="https://data.cityofchicago.org">Chicago Open Data Portal</a><br>
+    <a href="{unsub}">Unsubscribe</a> &middot; <a href="https://thegovernmentandme.tools">thegovernmentandme.tools</a>
+  </div>
+</div>
+</body></html>"""

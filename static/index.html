@@ -103,22 +103,13 @@
 
     /* ── Home link ────────────────────────────────────────────────────── */
     .home-link {
-      background: rgba(255,255,255,.15);
-      border: 1px solid rgba(255,255,255,.4);
-      border-radius: 8px;
-      color: #fff;
-      font-size: 0.8rem;
-      font-weight: 600;
-      padding: 8px 14px;
-      min-height: 36px;
+      color: rgba(255,255,255,0.65);
       text-decoration: none;
-      display: flex;
-      align-items: center;
+      font-size: 0.82rem;
       flex-shrink: 0;
       white-space: nowrap;
-      transition: background .15s;
     }
-    .home-link:hover { background: rgba(255,255,255,.25); }
+    .home-link:hover { color: #fff; }
 
     /* ── Language selector ────────────────────────────────────────────── */
     #lang-wrap {
@@ -938,14 +929,8 @@
     <h1><a href = "/" id="header-title" style=color:white; >Chicago City Services</a></h1>
   </div>
 
-  <div id="tab-bar">
-    <button class="tab-btn active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
-    <button class="tab-btn" data-tab="legislation" onclick="switchTab('legislation')">Chicago Legislation</button>
-    <!-- <button class="tab-btn" data-tab="il-legislation" onclick="switchTab('il-legislation')">Illinois Legislation</button> -->
-  </div>
-
-  <!-- <a href="/" class="home-link">← Home</a>
-  <button id="info-toggle" onclick="toggleInfoPanel()" aria-label="Show info">Info</button> -->
+  <a href="/" class="home-link">← All tools</a>
+  <!-- <button id="info-toggle" onclick="toggleInfoPanel()" aria-label="Show info">Info</button> -->
 
   <div id="lang-wrap">
     <label for="lang-select" id="lang-label">Language</label>
