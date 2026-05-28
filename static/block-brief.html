@@ -355,7 +355,9 @@
     const params = new URLSearchParams(window.location.search);
     if (params.get('confirmed') === '1') {
       const addr = params.get('address') || 'your address';
-      showMsg('success', `You're confirmed! Your welcome email for ${decodeURIComponent(addr)} is on its way. Weekly updates start next Monday.`);
+      document.querySelector('.intro').style.display = 'none';
+      const card = document.querySelector('.form-card');
+      card.innerHTML = `<div class="form-msg success" style="display:block;">You&#39;re confirmed! Your welcome email for ${decodeURIComponent(addr)} is on its way. Weekly updates start next Monday.</div>`;
     }
 
     // ── Feature request box ──
