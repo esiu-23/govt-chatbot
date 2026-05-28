@@ -72,6 +72,11 @@ def _fetch_static_services(lat: float, lng: float, radius_m: int = 804) -> dict:
             "$select": "market_name,location_description,days_hours,location",
             "$limit": "5",
         }),
+        "parks": ("ejsh-fztr", {
+            "$where": f"within_circle(the_geom, {lat}, {lng}, {radius_m})",
+            "$select": "label,location,hours,the_geom",
+            "$limit": "6",
+        }),
     }
 
     results = {}

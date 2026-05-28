@@ -409,6 +409,15 @@ def render_block_brief_welcome(address: str, lat: float, lng: float,
             for r in libs
         ])
 
+    parks = services.get("parks") or []
+    if parks:
+        sections_html += _section("Parks", [
+            f"<strong>{_h(r.get('label','Park'))}</strong>"
+            + (f" — {_h(r['location'])}" if r.get("location") else "")
+            + (f"<br><span style='color:#666'>{_h(r['hours'])}</span>" if r.get("hours") else "")
+            for r in parks
+        ])
+
     schools = services.get("cps_schools") or []
     if schools:
         sections_html += _section("CPS Schools", [
@@ -481,7 +490,7 @@ def render_block_brief_welcome(address: str, lat: float, lng: float,
 <div class="wrap">
   <div class="hdr"><h1>Welcome to Block Brief</h1><p>{addr}</p></div>
   <div class="body">
-    <p>You're all set! Here's what's available near your block. Starting next Monday, you'll receive a weekly digest of new activity in your neighborhood.</p>
+    <p>Welcome to your block! This weekly email digest will keep you updated on what's happening in your neighborhood, from safety &amp; crime to new business openings. Here&#39;s a quick overview of what city services are in your neighborhood:</p>
     <p class="meta">Tracking: {_h(prefs_display)}</p>
     {sections_html if sections_html else '<p style="color:#888;font-style:italic;">No nearby services found yet — your weekly digest will include real-time activity as it happens.</p>'}
   </div>
