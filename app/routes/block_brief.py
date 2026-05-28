@@ -13,7 +13,9 @@ from psycopg2.extras import Json as PgJson
 from ..db import _db
 from ..email.sender import send_email
 from ..routes.know_your_block import (
-    _fetch_json, _geo, _geo_field, _get, _fetch_park_events,
+    _fetch_json, _geo, _get, _fetch_park_events,
+    _fetch_overpass_libraries, _fetch_overpass_schools,
+    _fetch_overpass_parks, _fetch_overpass_bus_stops, _fetch_overpass_farmers_markets,
     _NOMINATIM, _SSL_CTX, _TOKEN, _BASE,
 )
 
@@ -44,19 +46,8 @@ def _geocode(address: str) -> tuple[float, float] | None:
 
 def _fetch_static_services(lat: float, lng: float, radius_m: int = 804) -> dict:
     geo = _geo(lat, lng, radius_m)
-    cta_bus_where = _geo_field("the_geom", lat, lng, radius_m)
 
     queries = {
-        "libraries": ("wa2i-tm5d", {
-            "$where": geo,
-            "$select": "name,address,hours_of_operation,phone,location",
-            "$limit": "5",
-        }),
-        "cps_schools": ("wg9x-4ke6", {
-            "$where": geo,
-            "$select": "school_nm,grades,address,phone,location",
-            "$limit": "10",
-        }),
         "speed_cameras": ("4i42-qv3h", {
             "$where": geo,
             "$select": "address,first_approach,second_approach,location",
@@ -67,34 +58,24 @@ def _fetch_static_services(lat: float, lng: float, radius_m: int = 804) -> dict:
             "$select": "intersection,first_approach,second_approach,location",
             "$limit": "10",
         }),
-        "farmers_markets": ("atzs-u7pv", {
-            "$where": geo,
-            "$select": "market_name,location_description,days_hours,location",
-            "$limit": "5",
-        }),
-        "parks": ("ejsh-fztr", {
-            "$where": f"within_circle(the_geom, {lat}, {lng}, {radius_m})",
-            "$select": "label,location,hours,the_geom",
-            "$limit": "6",
-        }),
     }
 
     results = {}
-    with ThreadPoolExecutor(max_workers=7) as executor:
+    with ThreadPoolExecutor(max_workers=9) as executor:
         futures = {
             executor.submit(_get, did, params): key
             for key, (did, params) in queries.items()
         }
-        futures[executor.submit(_get, "hvnx-qtky", {
-            "$where": cta_bus_where,
-            "$select": "stop_name,street,cross_st,routesstpg,the_geom",
-            "$limit": "10",
-        })] = "cta_bus_stops"
         futures[executor.submit(_get, "8pix-ypme", {
             "$where": geo,
             "$select": "stop_name,station_name,station_descriptive_name,red,blue,g,brn,p,y,pnk,o,location",
             "$limit": "8",
         })] = "cta_l_stops"
+        futures[executor.submit(_fetch_overpass_libraries, lat, lng, radius_m, 5)] = "libraries"
+        futures[executor.submit(_fetch_overpass_schools, lat, lng, radius_m, 10)] = "cps_schools"
+        futures[executor.submit(_fetch_overpass_parks, lat, lng, radius_m, 6)] = "parks"
+        futures[executor.submit(_fetch_overpass_bus_stops, lat, lng, radius_m, 10)] = "cta_bus_stops"
+        futures[executor.submit(_fetch_overpass_farmers_markets, lat, lng, radius_m, 5)] = "farmers_markets"
         for future in as_completed(futures):
             key = futures[future]
             try:
