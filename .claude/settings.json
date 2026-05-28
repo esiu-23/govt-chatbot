@@ -36,7 +36,8 @@
       "Bash(git -C \"/Users/esiu/Desktop/2025/chi govt research/govt-chatbot\" status --short)",
       "Bash(git -C \"/Users/esiu/Desktop/2025/chi govt research/govt-chatbot\" branch --show-current)",
       "Bash(ps -p 7498,7533 -o pid,command)",
-      "Bash(kill 7498 7533)"
+      "Bash(kill 7498 7533)",
+      "Bash(git check-ignore *)"
     ],
     "additionalDirectories": [
       "/tmp"
