@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Know Your Block — Chicago Civic Tools</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1a1a2e; }
+    body { display: flex; flex-direction: column; }
+
+    /* Header */
+    header { background: #003F87; color: #fff; flex-shrink: 0; }
+    .flag-bar { display: flex; height: 5px; }
+    .flag-bar .blue  { background: #003F87; flex: 1; }
+    .flag-bar .white { background: #fff;    flex: 1; }
+    .flag-bar .red   { background: #c8102e; flex: 1; }
+    .header-inner { padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+    .header-inner h1 { font-size: 1.2rem; font-weight: 700; }
+    .header-inner p  { font-size: 0.78rem; opacity: 0.75; margin-top: 1px; }
+    .header-text { flex: 1; }
+    .header-inner a { color: rgba(255,255,255,0.65); text-decoration: none; font-size: 0.82rem; }
+    .header-inner a:hover { color: #fff; }
+
+    /* Layout */
+    .layout { flex: 1; display: flex; min-height: 0; }
+    #map-pane { flex: 1; min-width: 0; position: relative; }
+    #kyb-map  { width: 100%; height: 100%; }
+
+    /* Legend */
+    #map-legend {
+      position: absolute; bottom: 24px; left: 12px;
+      background: rgba(255,255,255,0.93); border: 1px solid #dde3ed; border-radius: 8px;
+      padding: 8px 12px; font-size: 0.71rem; z-index: 500;
+      pointer-events: none; display: none; flex-direction: column; gap: 4px;
+    }
+    #map-legend.visible { display: flex; }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.8); flex-shrink: 0; }
+
+    /* Detail pane */
+    #detail-pane {
+      width: 380px; flex-shrink: 0;
+      border-left: 1px solid #dde3ed; background: #fff;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .panel-inner { flex: 1; overflow-y: auto; padding: 18px 16px 40px; scroll-behavior: smooth; }
+
+    /* Search bar */
+    .search-bar { display: flex; flex-direction: column; gap: 7px; margin-bottom: 18px; }
+    .search-input-wrap { position: relative; }
+    .search-bar input {
+      width: 100%; padding: 10px 13px;
+      border: 1px solid #ccd3df; border-radius: 8px;
+      font-size: 0.9rem; outline: none; background: #fff;
+    }
+    .search-bar input:focus { border-color: #003F87; box-shadow: 0 0 0 3px rgba(0,63,135,0.12); }
+    .search-row { display: flex; gap: 7px; }
+    .search-bar select {
+      padding: 9px 10px; border: 1px solid #ccd3df; border-radius: 8px;
+      font-size: 0.85rem; background: #fff; cursor: pointer; outline: none;
+    }
+    .search-bar button {
+      flex: 1; padding: 9px 14px; background: #003F87; color: #fff;
+      border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .search-bar button:hover { background: #002f65; }
+    .search-bar button:disabled { background: #8ba6c7; cursor: not-allowed; }
+
+    /* Autocomplete */
+    .ac-dropdown {
+      display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+      background: #fff; border: 1px solid #ccd3df; border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12); z-index: 1000; overflow: hidden;
+    }
+    .ac-dropdown.open { display: block; }
+    .ac-item { padding: 9px 13px; font-size: 0.85rem; cursor: pointer; }
+    .ac-item:hover, .ac-item.active { background: #e8eff9; }
+
+    /* Status / welcome */
+    .status { text-align: center; padding: 20px 0; color: #666; font-size: 0.88rem; }
+    .status.error { color: #c8102e; }
+    .welcome { padding: 6px 0 4px; color: #666; font-size: 0.85rem; line-height: 1.6; }
+
+    /* Sections */
+    .section { margin-bottom: 24px; }
+    .section-header {
+      display: flex; align-items: baseline; gap: 8px;
+      margin-bottom: 9px; border-bottom: 2px solid #e8ecf4; padding-bottom: 7px;
+    }
+    .section-header h2 { font-size: 0.8rem; font-weight: 700; color: #003F87; text-transform: uppercase; letter-spacing: 0.5px; }
+    .section-header .count { font-size: 0.72rem; color: #888; }
+
+    /* Summary groups (accordion rows inside each section) */
+    .summary-group {
+      border: 1px solid #dde3ed; border-radius: 8px;
+      overflow: hidden; margin-bottom: 7px; background: #fff;
+    }
+    .summary-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 13px; cursor: pointer; gap: 10px; background: #f8fafc;
+      transition: background 0.15s; user-select: none;
+    }
+    .summary-header:hover { background: #f0f5fc; }
+    .summary-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; }
+    .summary-desc { font-size: 0.82rem; color: #333; line-height: 1.4; }
+    .summary-chevron { font-size: 0.75rem; color: #888; flex-shrink: 0; }
+    .summary-body { display: none; padding: 8px 10px 12px; border-top: 1px solid #eef0f4; }
+    .summary-body.open { display: block; }
+    .summary-body .cards { display: flex; flex-direction: column; gap: 8px; }
+
+    /* Cards */
+    .card {
+      background: #f8fafc; border: 1px solid #dde3ed; border-radius: 8px;
+      padding: 11px 13px; display: flex; flex-direction: column; gap: 4px;
+      transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
+    }
+    .card.linked { cursor: pointer; }
+    .card.linked:hover { background: #f0f5fc; border-color: #b8cce8; }
+    .card.highlight { background: #dce8fa !important; border-color: #003F87 !important; box-shadow: 0 0 0 2px rgba(0,63,135,0.25); }
+
+    .card-label {
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.9px; text-transform: uppercase;
+      color: #003F87; background: #e8eff9;
+      display: inline-block; padding: 2px 7px; border-radius: 20px; width: fit-content;
+    }
+    .card-label.red    { color: #a30000; background: #fde8e8; }
+    .card-label.orange { color: #7a3800; background: #fdf0e0; }
+    .card-label.green  { color: #1a5c2a; background: #e4f5e8; }
+    .card-label.gray   { color: #555;    background: #eef0f4; }
+    .card h3   { font-size: 0.87rem; font-weight: 600; line-height: 1.35; }
+    .card .address { font-size: 0.76rem; color: #666; }
+    .card .meta    { font-size: 0.73rem; color: #888; }
+    .card .amount  { font-size: 0.84rem; font-weight: 700; color: #003F87; }
+    .card .why {
+      font-size: 0.73rem; color: #444; background: #f0f4fa;
+      border-radius: 5px; padding: 5px 9px; margin-top: 2px; line-height: 1.4;
+    }
+    .card-toggle {
+      font-size: 0.72rem; color: #003F87; margin-top: 3px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 3px; width: fit-content;
+      padding: 1px 0;
+    }
+    .card-toggle:hover { text-decoration: underline; }
+    .card-detail {
+      display: none; margin-top: 6px; padding-top: 8px;
+      border-top: 1px solid #e0e6f0; font-size: 0.73rem;
+      line-height: 1.55; color: #444; flex-direction: column; gap: 3px;
+    }
+    .card-detail.open { display: flex; }
+    .detail-row { display: flex; gap: 6px; }
+    .detail-key { font-weight: 600; color: #555; white-space: nowrap; min-width: 80px; }
+
+    /* Tooltip icon */
+    .tip-icon {
+      font-size: 0.68rem; color: #999; cursor: help;
+      display: inline-block; vertical-align: middle; margin-left: 2px;
+      transition: color 0.1s;
+    }
+    .tip-icon:hover { color: #003F87; }
+
+    /* Global floating tooltip */
+    #global-tip {
+      position: fixed; display: none; z-index: 9999;
+      background: #1a1a2e; color: #fff;
+      font-size: 0.71rem; padding: 7px 10px; border-radius: 6px;
+      max-width: 230px; line-height: 1.5; pointer-events: none;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+
+    /* Attribution */
+    .attribution {
+      padding: 10px 16px; font-size: 0.7rem; color: #bbb;
+      border-top: 1px solid #eef0f4; flex-shrink: 0;
+    }
+    .attribution a { color: #bbb; }
+    .attribution a:hover { color: #003F87; }
+
+    /* Mobile */
+    @media (max-width: 680px) {
+      .layout { flex-direction: column; }
+      #map-pane { height: 44vh; }
+      #detail-pane { width: 100%; border-left: none; border-top: 1px solid #dde3ed; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="flag-bar">
+      <div class="blue"></div><div class="white"></div><div class="blue"></div>
+      <div class="white"></div><div class="red"></div><div class="white"></div>
+    </div>
+    <div class="header-inner">
+      <div class="header-text">
+        <h1>Know Your Block</h1>
+        <p>See what the city is doing near your address.</p>
+      </div>
+      <a href="/">← All tools</a>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div id="map-pane">
+      <div id="kyb-map"></div>
+      <div id="map-legend" class="map-legend"></div>
+    </div>
+    <div id="detail-pane">
+      <div class="panel-inner" id="panel-scroll">
+        <div class="search-bar">
+          <div class="search-input-wrap">
+            <input type="text" id="address-input"
+                   placeholder="e.g. 1234 N Milwaukee Ave"
+                   autocomplete="off" />
+            <div id="ac-dropdown" class="ac-dropdown"></div>
+          </div>
+          <div class="search-row">
+            <select id="radius-select">
+              <option value="0.25">¼ mile</option>
+              <option value="0.5" selected>½ mile</option>
+              <option value="1.0">1 mile</option>
+            </select>
+            <button id="search-btn" onclick="search()">Search</button>
+          </div>
+        </div>
+        <div id="status" class="status" style="display:none"></div>
+        <div id="welcome" class="welcome">
+          Enter a Chicago address to see nearby permits, violations, food inspections, crashes, 311 requests, and more from the Open Data Portal.
+        </div>
+        <div id="results" style="display:none"></div>
+      </div>
+      <div class="attribution">
+        Data from <a href="https://data.cityofchicago.org" target="_blank" rel="noreferrer">Chicago Open Data Portal</a>. Updated daily.
+      </div>
+    </div>
+  </div>
+
+  <div id="global-tip"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // ── Map setup ──
+    const _map = L.map('kyb-map').setView([41.8781, -87.6298], 12);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(_map);
+    const _markerLayer = L.layerGroup().addTo(_map);
+    let _markerById = {};
+
+    const _pinIcon = L.divIcon({
+      className: '',
+      html: `<svg viewBox="0 0 24 32" width="22" height="30" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 20 12 20s12-11 12-20C24 5.37 18.63 0 12 0z" fill="#003F87"/>
+        <circle cx="12" cy="12" r="4.5" fill="#fff"/>
+      </svg>`,
+      iconSize: [22, 30], iconAnchor: [11, 30], popupAnchor: [0, -32],
+    });
+
+    const SIGNAL_STYLE = {
+      crimes:              { color: '#c8102e', label: 'Crime' },
+      traffic_crashes:     { color: '#e8590c', label: 'Crash' },
+      building_violations: { color: '#c8102e', label: 'Violation' },
+      food_fail:           { color: '#c8102e', label: 'Food — Failed' },
+      food_cond:           { color: '#e8590c', label: 'Food — Conditional' },
+      food_pass:           { color: '#2f9e44', label: 'Food — Passed' },
+      business_licenses:   { color: '#003F87', label: 'Business License' },
+      liquor_licenses:     { color: '#1971c2', label: 'Liquor License' },
+      building_permits:    { color: '#1971c2', label: 'Permit' },
+      street_closures:     { color: '#e8590c', label: 'Street Closure' },
+      tif_projects:        { color: '#2f9e44', label: 'TIF Project' },
+      block_parties:       { color: '#7048e8', label: 'Block Party' },
+      farmers_markets:     { color: '#7048e8', label: 'Farmers Market' },
+      potholes_patched:    { color: '#2f9e44', label: 'City Service' },
+      streetlight_outages: { color: '#f59f00', label: 'Streetlight Out' },
+      tree_trims:          { color: '#2f9e44', label: 'Tree Work' },
+      sr_open:             { color: '#f59f00', label: '311 Open' },
+      sr_closed:           { color: '#adb5bd', label: '311 Completed' },
+      park_events:         { color: '#7048e8', label: 'Park Event' },
+      cta_bus_stops:       { color: '#00897b', label: 'CTA Bus Stop' },
+      cta_l_stops:         { color: '#00897b', label: 'CTA L Stop' },
+      libraries:           { color: '#5c35cc', label: 'Library' },
+      cps_schools:         { color: '#5c35cc', label: 'CPS School' },
+      speed_cameras:       { color: '#868e96', label: 'Speed Camera' },
+      red_light_cameras:   { color: '#868e96', label: 'Red Light Camera' },
+    };
+
+    function signalKey(type, r) {
+      if (type === 'food_inspections') {
+        const res = (r.results || '').toLowerCase();
+        if (res.includes('fail')) return 'food_fail';
+        if (res.includes('conditional')) return 'food_cond';
+        return 'food_pass';
+      }
+      if (type === 'sr_requests') return r.closed_date ? 'sr_closed' : 'sr_open';
+      if (type === 'building_permits' && (r.permit_type || '').match(/WRECKING|DEMOLITION/)) return 'crimes';
+      return type;
+    }
+
+    function markerPopup(type, r) {
+      function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+      switch (type) {
+        case 'crimes':
+          return `<b>${esc(r.primary_type)}</b><br><small>${esc(r.description)}</small><br><small>${fmtDate(r.date)}</small>`;
+        case 'traffic_crashes':
+          return `<b>Traffic Crash</b>${r.injuries_total > 0 ? `<br><small>${r.injuries_total} injured</small>` : ''}<br><small>${fmtDate(r.crash_date)}</small>`;
+        case 'building_violations':
+          return `<b>Building Violation</b><br><small>${esc((r.violation_description || '').slice(0, 90))}</small><br><small>${fmtDate(r.violation_date)}</small>`;
+        case 'food_inspections':
+          return `<b>${esc(r.dba_name || 'Food')}</b><br><small>${esc(r.results)}</small><br><small>${fmtDate(r.inspection_date)}</small>`;
+        case 'business_licenses':
+          return `<b>${esc(r.doing_business_as_name || r.legal_name)}</b><br><small>${esc(r.license_description)}</small><br><small>${esc(r.address)}</small>`;
+        case 'building_permits':
+          return `<b>${esc(permitTypeLabel(r.permit_type))}</b><br><small>${esc((r.work_description || '').slice(0, 90))}</small><br><small>${esc(permitAddr(r))}</small>`;
+        case 'tif_projects':
+          return `<b>${esc(r.project_name || 'TIF')}</b>${r.approved_amount ? `<br><small>${fmtMoney(r.approved_amount)}</small>` : ''}<br><small>${esc(r.address)}</small>`;
+        case 'block_parties':
+          return `<b>Block Party</b><br><small>${esc(r.streetname)}</small><br><small>${fmtDate(r.applicationstartdate)}</small>`;
+        case 'potholes_patched':
+          return `<b>${r.number_of_potholes_filled_on_block || '?'} potholes filled</b><br><small>${esc(r.address)}</small><br><small>${fmtDate(r.completion_date)}</small>`;
+        case 'sr_requests':
+          return `<b>${esc(r.sr_type || '311 Request')}</b><br><small>${r.closed_date ? 'Completed ' + fmtDate(r.closed_date) : 'Open · Filed ' + fmtDate(r.created_date)}</small><br><small>${esc(r.street_address)}</small>`;
+        case 'park_events':
+          return `<b>${esc(r.event_description || r.event_type || 'Park Event')}</b><br><small>${esc(r.park_name || r.park_facility_name)}</small><br><small>${fmtDate(r.reservation_start_date)}${r.reservation_end_date && r.reservation_end_date !== r.reservation_start_date ? ' – ' + fmtDate(r.reservation_end_date) : ''}</small>`;
+        case 'liquor_licenses':
+          return `<b>${esc(r.legal_name)}</b><br><small>${esc(r.license_description)}</small><br><small>${esc(r.address)}</small>`;
+        case 'street_closures':
+          return `<b>Street Closure</b><br><small>${esc([r.street_number, r.street_name].filter(Boolean).join(' '))}</small><br><small>${fmtDate(r.permit_start_date)}${r.permit_end_date ? ' – ' + fmtDate(r.permit_end_date) : ''}</small>`;
+        case 'farmers_markets':
+          return `<b>${esc(r.market_name || 'Farmers Market')}</b><br><small>${esc(r.location_description)}</small><br><small>${esc(r.days_hours)}</small>`;
+        case 'streetlight_outages':
+          return `<b>Streetlight Out</b><br><small>${esc(r.street_address)}</small><br><small>${fmtDate(r.creation_date)}</small>`;
+        case 'tree_trims':
+          return `<b>Tree Work</b><br><small>${esc(r.address)}</small><br><small>${r.completion_date ? 'Done ' + fmtDate(r.completion_date) : 'Open · ' + fmtDate(r.creation_date)}</small>`;
+        case 'cta_bus_stops':
+          return `<b>🚌 ${esc(r.stop_name || 'Bus Stop')}</b><br><small>${esc([r.street, r.cross_st].filter(Boolean).join(' & '))}</small><br><small>Routes: ${esc(r.routesstpg || '—')}</small>`;
+        case 'cta_l_stops':
+          return `<b>🚇 ${esc(r.station_name || r.stop_name)}</b><br><small>${esc(r.station_descriptive_name)}</small>`;
+        case 'libraries':
+          return `<b>📚 ${esc(r.name)}</b><br><small>${esc(r.address)}</small><br><small>${esc((r.hours_of_operation || '').slice(0, 60))}</small>`;
+        case 'cps_schools':
+          return `<b>🏫 ${esc(r.school_nm)}</b><br><small>${esc(r.grades)}</small><br><small>${esc(r.address)}</small>`;
+        case 'speed_cameras':
+          return `<b>📷 Speed Camera</b><br><small>${esc(r.address)}</small>`;
+        case 'red_light_cameras':
+          return `<b>📷 Red Light Camera</b><br><small>${esc(r.intersection)}</small>`;
+        default: return esc(type);
+      }
+    }
+
+    function assignIds(signals) {
+      for (const [type, records] of Object.entries(signals)) {
+        if (Array.isArray(records)) records.forEach((r, i) => { r._mapId = `${type}-${i}`; });
+      }
+    }
+
+    function renderMap(signals, centerLat, centerLng, addr) {
+      _markerById = {};
+      _markerLayer.clearLayers();
+      _map.setView([centerLat, centerLng], 15);
+
+      L.marker([centerLat, centerLng], { icon: _pinIcon, zIndexOffset: 1000 })
+        .bindPopup(`<b>${(addr || '').replace(/</g, '&lt;')}</b>`)
+        .addTo(_markerLayer);
+
+      const seenColors = new Map();
+      for (const [type, records] of Object.entries(signals)) {
+        if (!Array.isArray(records)) continue;
+        for (const r of records) {
+          // Support top-level lat/lng, nested location object, and GeoJSON the_geom Point
+          const lat = parseFloat(r.latitude)
+            || parseFloat(r.location?.latitude)
+            || (r.the_geom?.type === 'Point' ? r.the_geom.coordinates[1] : NaN);
+          const lng = parseFloat(r.longitude)
+            || parseFloat(r.location?.longitude)
+            || (r.the_geom?.type === 'Point' ? r.the_geom.coordinates[0] : NaN);
+          if (isNaN(lat) || isNaN(lng)) continue;
+          const sk = signalKey(type, r);
+          const color = SIGNAL_STYLE[sk]?.color || '#888';
+          const marker = L.circleMarker([lat, lng], {
+            radius: 6, fillColor: color, fillOpacity: 0.78, color: '#fff', weight: 1.5,
+          }).bindPopup(markerPopup(type, r));
+
+          const mapId = r._mapId;
+          marker.on('click', () => scrollToCard(mapId));
+          marker.addTo(_markerLayer);
+          _markerById[mapId] = marker;
+
+          if (!seenColors.has(color)) seenColors.set(color, SIGNAL_STYLE[sk]?.label || type);
+        }
+      }
+
+      const legend = document.getElementById('map-legend');
+      const pinSvg = `<svg viewBox="0 0 24 32" width="10" height="13" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 20 12 20s12-11 12-20C24 5.37 18.63 0 12 0z" fill="#003F87"/></svg>`;
+      legend.innerHTML =
+        [...seenColors.entries()].map(([c, l]) =>
+          `<div class="legend-item"><div class="legend-dot" style="background:${c}"></div>${l}</div>`
+        ).join('') +
+        `<div class="legend-item">${pinSvg}&nbsp;Your address</div>`;
+      legend.classList.add('visible');
+    }
+
+    function panToMarker(mapId) {
+      const marker = _markerById[mapId];
+      if (!marker) return;
+      _map.setView(marker.getLatLng(), Math.max(_map.getZoom(), 16), { animate: true });
+      marker.openPopup();
+      marker.setStyle({ radius: 10, weight: 3, color: '#003F87', fillOpacity: 1 });
+      setTimeout(() => marker.setStyle({ radius: 6, weight: 1.5, color: '#fff', fillOpacity: 0.78 }), 1800);
+    }
+
+    function scrollToCard(mapId) {
+      const cardEl = document.getElementById(`card-${mapId}`);
+      if (!cardEl) return;
+      // Open the parent summary-body if collapsed
+      const body = cardEl.closest('.summary-body');
+      if (body && !body.classList.contains('open')) {
+        const id = body.id;
+        body.classList.add('open');
+        const chev = document.getElementById(`chev-${id}`);
+        if (chev) chev.textContent = '▾';
+      }
+      cardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      cardEl.classList.add('highlight');
+      setTimeout(() => cardEl.classList.remove('highlight'), 1600);
+    }
+
+    // ── Status & license type tooltip DB ──
+    const STATUS_INFO = {
+      // Food inspection results
+      'Pass': 'The establishment met all health and safety requirements at the time of inspection.',
+      'Pass w/ Conditions': 'The establishment passed, but inspectors found minor violations that must be corrected within a set time. A follow-up inspection may occur.',
+      'Fail': 'The establishment failed inspection due to critical or serious violations. It must correct all violations and pass a re-inspection before it can reopen.',
+      'Out of Business': 'The establishment has permanently closed.',
+      'Business Not Located': 'The inspector could not find the business at the address on file.',
+      'No Entry': 'The inspector arrived but was unable to enter the premises.',
+      'Not Ready': 'The establishment was not set up or ready for inspection — it may be newly opened or temporarily closed.',
+      'No Violation Found': 'The inspector found no violations during this visit.',
+
+      // Business license statuses
+      'AAC': 'Alderman Approval Condition — this license cannot be issued until the ward alderperson votes to approve it.',
+      'ISSUED': 'The license is active. The business is legally authorized to operate.',
+      'REVOKED': 'The City revoked this license. The business may no longer legally operate under it.',
+      'EXPIRED': 'The license period ended. The business must renew before continuing to operate.',
+      'CANCELLED': 'The license application was withdrawn or administratively cancelled.',
+
+      // Building violation inspection statuses
+      'FAILED INSPECTION': 'A follow-up inspection found the violation still exists. Further action is required.',
+      'PASSED INSPECTION': 'A follow-up inspection confirmed the violation has been corrected.',
+      'COMPLIED': 'The property owner corrected the violation and is now in compliance.',
+      'NO ENTRY': 'The inspector arrived but could not access the property to inspect it.',
+
+      // 311 service request statuses
+      'Open': 'The request has been received and is in the queue for city action.',
+      'Completed': 'The city has addressed the request and closed the case.',
+      'In Progress': 'City crews or contractors are actively working on this request.',
+      'Duplicate (Open)': 'This request was merged with an existing open request.',
+      'Duplicate (Closed)': 'This request was merged with a previously completed request.',
+
+      // License types — require alderman approval
+      'Tavern': 'A bar or drinking establishment serving alcohol for consumption on premises. Requires alderman approval before the City can issue the license.',
+      'Package Goods': 'A store selling sealed, unopened alcoholic beverages to take home (e.g., a liquor store). Requires alderman approval.',
+      'Package Goods - Tavern Combination': 'Combines a bar with retail alcohol package sales under one license. Requires alderman approval.',
+      'Consumption on Premises - Incidental Activity': 'A business (usually a restaurant) where alcohol service is secondary to another activity like dining. Requires alderman approval.',
+      'Public Place of Amusement': 'An entertainment venue that charges admission — concerts, comedy clubs, bowling alleys, arcades, etc. Requires alderman approval.',
+      'Outdoor Patio': 'A licensed outdoor seating or service area attached to an existing licensed business. Requires alderman approval.',
+      'Caterer\'s Liquor License': 'Allows a licensed caterer to serve alcohol at off-premises events. Requires alderman approval.',
+      'Late Hour': 'Allows a business to remain open past 2 a.m. for late-night service. Requires alderman approval.',
+      'Music and Dance': 'An establishment that provides live or recorded music with a dance floor. Requires alderman approval.',
+      'Indoor Special Event': 'A temporary license for a one-time or limited indoor event (concerts, pop-ups, etc.). Requires alderman approval.',
+      'After Hours Business': 'A business operating primarily after 2 a.m. Requires alderman approval.',
+
+      // License types — no alderman approval required
+      'Limited Business License': 'A general-purpose license for most retail and service businesses. Does not require alderman approval.',
+      'Retail Food Establishment': 'A restaurant, café, or grocery store selling food. Food safety is regulated separately through health inspections.',
+      'Shared Kitchen': 'A licensed commercial kitchen rented by multiple food vendors or caterers. Does not require alderman approval.',
+      'Mobile Food Dispenser': 'A mobile food cart or kiosk (e.g., a hot dog stand or coffee cart).',
+      'Mobile Food Preparer': 'A food truck that prepares food on-site and sells it at various locations.',
+      'Children\'s Services Facility': 'A day care center, preschool, or other licensed facility serving children.',
+      'Tobacco Retail Dealer': 'A business licensed to sell tobacco and related products.',
+      'Auto Repair Shop': 'A licensed auto repair or service facility.',
+      'Secondhand Dealer': 'A business that buys or sells used goods (clothing, furniture, electronics, etc.).',
+      'Secondhand Dealer - Regulated': 'A business dealing in high-value secondhand items like jewelry, coins, or electronics — subject to stricter record-keeping requirements.',
+      'Pawnbroker': 'A pawn shop licensed to offer collateral loans against personal property.',
+      'Currency Exchange': 'A licensed business offering check cashing, money orders, and similar financial services.',
+      'Massage Therapist Establishment': 'A business providing licensed massage therapy services.',
+      'Filling Station': 'A gas station or fuel retailer.',
+      'Regulated Business License': 'A license for businesses that require additional City oversight — such as pawn shops, towing companies, or recycling dealers.',
+      'Charitable Games License': 'Allows a qualifying nonprofit to run games of chance (e.g., raffle, bingo) at a fundraising event.',
+
+      // Summary-level explanations used on group headers
+      'PENDING_ALDERMAN': 'Liquor, tavern, and entertainment licenses require a vote from the ward alderperson before the City can issue them. Residents can contact their alderperson\'s office to support or oppose these applications.',
+      'FOOD_FAIL': 'A failed inspection means the establishment had critical violations posing an immediate health risk. It must pass a re-inspection before reopening.',
+      'FOOD_COND': 'A conditional pass means minor violations were found. The establishment can stay open but must fix the issues within a set time frame.',
+      'BUILDING_VIOLATION': 'Building code violations are issued by the Department of Buildings when a property doesn\'t meet minimum safety or maintenance standards. Unresolved violations can lead to fines or court action.',
+    };
+
+    // ── Tooltip helpers ──
+    const _tipEl = document.getElementById('global-tip');
+    function showTip(e) {
+      const text = e.currentTarget.dataset.tip;
+      if (!text) return;
+      _tipEl.textContent = text;
+      _tipEl.style.display = 'block';
+      positionTip(e);
+    }
+    function positionTip(e) {
+      const r = e.currentTarget.getBoundingClientRect();
+      const tipW = 230;
+      let left = r.left + r.width / 2 - tipW / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+      const top = r.top - _tipEl.offsetHeight - 7;
+      _tipEl.style.left = left + 'px';
+      _tipEl.style.top = (top < 8 ? r.bottom + 7 : top) + 'px';
+    }
+    function hideTip() { _tipEl.style.display = 'none'; }
+
+    function tip(text, key) {
+      const info = STATUS_INFO[key || text];
+      if (!info) return text || '';
+      const escaped = info.replace(/"/g, '&quot;');
+      return `${text}<span class="tip-icon" data-tip="${escaped}" onmouseenter="showTip(event)" onmouseleave="hideTip()" onmousemove="positionTip(event)">ⓘ</span>`;
+    }
+
+    // ── Canonicalization (mirrors stripSecondaryAddress in neighborhood-map) ──
+    const _STREET_TOKENS = new Set([
+      'AVENUE','AVE','STREET','ST','DRIVE','DR','BOULEVARD','BLVD','ROAD','RD',
+      'PLACE','PL','COURT','CT','LANE','LN','PARKWAY','PKWY','TERRACE','TER',
+      'CIRCLE','CIR','HIGHWAY','HWY','EXPRESSWAY','EXPY',
+    ]);
+    function stripSecondaryAddress(addr) {
+      const tokens = addr.trim().toUpperCase().split(/\s+/);
+      for (let i = tokens.length - 1; i >= 1; i--) {
+        if (_STREET_TOKENS.has(tokens[i])) return tokens.slice(0, i + 1).join(' ');
+      }
+      return addr.trim().toUpperCase();
+    }
+
+    // ── Autocomplete ──
+    const input = document.getElementById('address-input');
+    const dropdown = document.getElementById('ac-dropdown');
+    let _acTimer = null, _acActiveIdx = -1, _acItems = [];
+
+    function closeDropdown() { dropdown.classList.remove('open'); _acActiveIdx = -1; _acItems = []; }
+    function renderDropdown(addresses) {
+      _acItems = addresses; _acActiveIdx = -1;
+      if (!addresses.length) { closeDropdown(); return; }
+      dropdown.innerHTML = addresses.map((a, i) => `<div class="ac-item" data-idx="${i}">${a}</div>`).join('');
+      dropdown.querySelectorAll('.ac-item').forEach(el =>
+        el.addEventListener('mousedown', e => { e.preventDefault(); selectItem(parseInt(el.dataset.idx)); })
+      );
+      dropdown.classList.add('open');
+    }
+    function selectItem(idx) { if (_acItems[idx]) { input.value = _acItems[idx]; closeDropdown(); } }
+    function updateActive(idx) {
+      dropdown.querySelectorAll('.ac-item').forEach((el, i) => el.classList.toggle('active', i === idx));
+      _acActiveIdx = idx;
+    }
+    input.addEventListener('input', () => {
+      clearTimeout(_acTimer);
+      const q = input.value.trim();
+      if (q.length < 4) { closeDropdown(); return; }
+      _acTimer = setTimeout(async () => {
+        try { renderDropdown(await (await fetch(`/api/address-complete?q=${encodeURIComponent(q)}`)).json()); }
+        catch { closeDropdown(); }
+      }, 280);
+    });
+    input.addEventListener('keydown', e => {
+      if      (e.key === 'ArrowDown') { e.preventDefault(); updateActive(Math.min(_acActiveIdx + 1, _acItems.length - 1)); }
+      else if (e.key === 'ArrowUp')   { e.preventDefault(); updateActive(Math.max(_acActiveIdx - 1, 0)); }
+      else if (e.key === 'Enter') {
+        if (_acActiveIdx >= 0 && _acItems[_acActiveIdx]) { e.preventDefault(); selectItem(_acActiveIdx); }
+        else { closeDropdown(); search(); }
+      } else if (e.key === 'Escape') { closeDropdown(); }
+    });
+    document.addEventListener('click', e => { if (!e.target.closest('.search-input-wrap')) closeDropdown(); });
+
+    // ── Helpers ──
+    function fmtDate(s) {
+      if (!s) return '';
+      try { return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+      catch { return s.slice(0, 10); }
+    }
+    function fmtMoney(s) {
+      const n = parseFloat(s);
+      if (isNaN(n)) return s || '';
+      if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1) + 'M';
+      if (n >= 1_000) return '$' + Math.round(n / 1_000) + 'K';
+      return '$' + Math.round(n).toLocaleString();
+    }
+    function permitTypeLabel(t) {
+      if (!t) return 'Permit';
+      if (t.includes('NEW CONSTRUCTION')) return 'New Construction';
+      if (t.includes('WRECKING') || t.includes('DEMOLITION')) return 'Demolition';
+      if (t.includes('RENOVATION') || t.includes('ALTERATION')) return 'Renovation';
+      if (t.includes('EXPRESS PERMIT')) return 'Minor Work';
+      return t.replace(/PERMIT\s*[–-]\s*/i, '').replace(/\b\w/g, c => c.toUpperCase());
+    }
+    function permitAddr(r) {
+      return [r.street_number, r.street_direction, r.street_name].filter(Boolean).join(' ');
+    }
+    function setStatus(msg, isError) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = 'status' + (isError ? ' error' : '');
+      el.style.display = msg ? '' : 'none';
+      if (msg) document.getElementById('results').style.display = 'none';
+    }
+
+    // ── Card detail expand ──
+    let _cardId = 0;
+    function toggleDetail(detailId) {
+      const detail = document.getElementById(detailId);
+      const toggle = detail.previousElementSibling;
+      const open = detail.classList.toggle('open');
+      toggle.textContent = open ? '▾  Less' : '▸  More details';
+    }
+
+    // ── Summary group accordion ──
+    function toggleGroup(id) {
+      const body = document.getElementById(id);
+      const chev = document.getElementById(`chev-${id}`);
+      const open = body.classList.toggle('open');
+      if (chev) chev.textContent = open ? '▾' : '▸';
+    }
+
+    // descHtml: already-escaped HTML for the summary line (may include tip() output)
+    // cardsHtml: individual card HTML to show when expanded
+    function summaryGroup(label, labelClass, descHtml, cardsHtml) {
+      if (!cardsHtml.trim()) return '';
+      const id = `sg-${++_cardId}`;
+      return `<div class="summary-group">
+        <div class="summary-header" onclick="toggleGroup('${id}')">
+          <div class="summary-left">
+            <span class="card-label ${labelClass}">${label}</span>
+            <span class="summary-desc">${descHtml}</span>
+          </div>
+          <span class="summary-chevron" id="chev-${id}">▸</span>
+        </div>
+        <div class="summary-body" id="${id}"><div class="cards">${cardsHtml}</div></div>
+      </div>`;
+    }
+
+    // ── Card builder ──
+    function card(labelText, labelClass, title, address, meta, amount, why, detail, mapId) {
+      const detailId = `cd-${++_cardId}`;
+      const cardIdAttr = mapId ? `id="card-${mapId}"` : '';
+      const cardClass  = mapId ? 'card linked' : 'card';
+      const cardClick  = mapId ? `onclick="panToMarker('${mapId}')"` : '';
+      const detailRows = detail
+        ? Object.entries(detail).filter(([, v]) => v).map(([k, v]) =>
+            `<div class="detail-row"><span class="detail-key">${k}</span><span>${v}</span></div>`
+          ).join('')
+        : '';
+      return `<div class="${cardClass}" ${cardIdAttr} ${cardClick}>
+        <span class="card-label ${labelClass || ''}">${labelText}</span>
+        <h3>${title}</h3>
+        ${address ? `<div class="address">${address}</div>` : ''}
+        ${amount  ? `<div class="amount">${amount}</div>`  : ''}
+        ${meta    ? `<div class="meta">${meta}</div>`      : ''}
+        ${why     ? `<div class="why">${why}</div>`        : ''}
+        ${detail  ? `<div class="card-toggle" onclick="event.stopPropagation();toggleDetail('${detailId}')">▸&nbsp;&nbsp;More details</div>
+                     <div class="card-detail" id="${detailId}">${detailRows}</div>` : ''}
+      </div>`;
+    }
+
+    function section(title, count, groupsHtml) {
+      if (!groupsHtml.trim()) return '';
+      return `<div class="section">
+        <div class="section-header">
+          <h2>${title}</h2>
+          <span class="count">${count} result${count !== 1 ? 's' : ''}</span>
+        </div>
+        ${groupsHtml}
+      </div>`;
+    }
+
+    // ── Search ──
+    async function search() {
+      closeDropdown();
+      const addr = input.value.trim();
+      if (!addr) { input.focus(); return; }
+      const canonical = stripSecondaryAddress(addr);
+      const radius = document.getElementById('radius-select').value;
+      const btn = document.getElementById('search-btn');
+
+      btn.disabled = true;
+      document.getElementById('welcome').style.display = 'none';
+      setStatus('Locating address…');
+
+      let lat, lng;
+      try {
+        const geo = await fetch(`/api/geocode?q=${encodeURIComponent(canonical)}`).then(r => r.json());
+        if (geo.error) throw new Error(geo.error);
+        lat = geo.lat; lng = geo.lng;
+      } catch {
+        setStatus('Could not find that address. Try including the street number and name.', true);
+        btn.disabled = false; return;
+      }
+
+      setStatus('Loading data…');
+      let data;
+      try {
+        data = await fetch(`/api/know-your-block?lat=${lat}&lng=${lng}&radius_mi=${radius}`).then(r => r.json());
+      } catch {
+        setStatus('Failed to load data. Please try again.', true);
+        btn.disabled = false; return;
+      }
+
+      btn.disabled = false;
+      setStatus('');
+      renderResults(data, addr, radius, lat, lng);
+    }
+
+    // ── Render results ──
+    function renderResults(data, addr, radius, lat, lng) {
+      _cardId = 0;
+      assignIds(data.signals);
+      renderMap(data.signals, lat, lng, addr);
+
+      const s = data.signals;
+      const radiusLabel = radius === '0.25' ? '¼ mile' : radius === '0.5' ? '½ mile' : '1 mile';
+      let html = `<p style="margin-bottom:18px;font-size:0.8rem;color:#555;">
+        Within <strong>${radiusLabel}</strong> of <strong>${addr}</strong>.
+      </p>`;
+
+      const isAlderLicense = r =>
+        /tavern|package goods|consumption on premises|public place of amusement|liquor|outdoor patio/i
+          .test((r.license_description || r.business_activity || ''));
+
+      function mkBizCard(r) {
+        const name = r.doing_business_as_name || r.legal_name || 'Business';
+        const type = r.license_description || r.business_activity || '';
+        const alder = isAlderLicense(r);
+        const pend  = !r.date_issued;
+        const typeLine = type ? tip(type, type) : '';
+        const dateLine = pend ? `Filed · Ward ${r.ward || '?'}` : `Issued ${fmtDate(r.date_issued)} · Ward ${r.ward || '?'}`;
+        return card(
+          pend && alder ? 'Pending — Alderman Approval' : alder ? 'Approved — Alderman Reviewed' : 'Business License',
+          pend && alder ? 'orange' : alder ? 'gray' : '',
+          name, r.address,
+          (typeLine ? typeLine + ' · ' : '') + dateLine,
+          null,
+          pend && alder ? `Contact Ward ${r.ward || '?'} alderperson's office to weigh in before this is approved.` : null,
+          { 'Status': tip(r.license_status || (pend ? 'Pending' : 'Issued'), r.license_status), 'Date': pend ? '—' : fmtDate(r.date_issued), 'Ward': r.ward, 'Area': r.community_area_name },
+          r._mapId
+        );
+      }
+
+      // ── Development & Permits ──
+      {
+        const bizAll       = s.business_licenses || [];
+        const alderPending = bizAll.filter(r => isAlderLicense(r) && !r.date_issued);
+        const alderIssued  = bizAll.filter(r => isAlderLicense(r) &&  r.date_issued);
+        const otherBiz     = bizAll.filter(r => !isAlderLicense(r));
+        const permits      = s.building_permits || [];
+        const permNew      = permits.filter(r => r.permit_type?.includes('NEW CONSTRUCTION'));
+        const permReno     = permits.filter(r => r.permit_type?.match(/RENOVATION|ALTERATION/));
+        const permDemo     = permits.filter(r => r.permit_type?.match(/WRECKING|DEMOLITION/));
+        const permMinor    = permits.filter(r => r.permit_type?.includes('EXPRESS PERMIT'));
+        const tifDistrictRaw = s.tif_district || [];
+        const tifDistricts = tifDistrictRaw.filter(r => !r.status || r.status.toLowerCase() === 'active');
+        const tifs         = s.tif_projects || [];
+        const liquorAll    = s.liquor_licenses || [];
+        const liquorNew    = liquorAll.filter(r => /AAC|ISSUE/i.test(r.license_status || ''));
+        const liquorClosed = liquorAll.filter(r => /AAI|REV|REA/i.test(r.license_status || ''));
+        const closures     = s.street_closures || [];
+
+        function mkPermCard(r) {
+          const isDemo  = r.permit_type?.match(/WRECKING|DEMOLITION/);
+          const isNew   = r.permit_type?.includes('NEW CONSTRUCTION');
+          const isMinor = r.permit_type?.includes('EXPRESS PERMIT');
+          const addr = permitAddr(r);
+          let callout = null;
+          if (isDemo) {
+            callout = 'This building is being torn down. If you have concerns about safety or the site, call 311 or contact your alderperson.';
+          } else if (isNew) {
+            callout = 'A new building is being constructed here. Expect noise and construction activity. Report unsafe site conditions to 311.';
+          } else if (isMinor) {
+            callout = 'Minor permitted work underway (roof, electrical, plumbing, etc.). Permits must be posted at the site. Report unsafe conditions to 311.';
+          } else {
+            callout = 'Renovation or alteration work is underway. Permits must be posted at the site. Report unlicensed work or unsafe conditions to 311.';
+          }
+          return card(
+            permitTypeLabel(r.permit_type),
+            isDemo ? 'red' : '',
+            r.work_description || permitTypeLabel(r.permit_type), addr,
+            `Filed ${fmtDate(r.application_start_date)}${r.contact_1_name ? ' · ' + r.contact_1_name : ''}`,
+            r.reported_cost ? fmtMoney(r.reported_cost) : null,
+            callout,
+            { 'Type': permitTypeLabel(r.permit_type), 'Filed': fmtDate(r.application_start_date), 'Cost': r.reported_cost ? fmtMoney(r.reported_cost) : null, 'Contact': r.contact_1_name, 'Address': addr },
+            r._mapId
+          );
+        }
+
+        let groups = '';
+        if (alderPending.length) groups += summaryGroup(
+          'Pending — Alderman Approval', 'orange',
+          `${alderPending.length} liquor/entertainment license${alderPending.length > 1 ? 's' : ''} ${tip('awaiting alderman approval', 'PENDING_ALDERMAN')}`,
+          alderPending.map(mkBizCard).join('')
+        );
+        if (alderIssued.length) groups += summaryGroup(
+          'Approved — Alderman Reviewed', 'gray',
+          `${alderIssued.length} approved liquor/entertainment license${alderIssued.length > 1 ? 's' : ''} nearby`,
+          alderIssued.map(mkBizCard).join('')
+        );
+        if (otherBiz.length) groups += summaryGroup(
+          'Business Licenses', '',
+          `${otherBiz.length} business license${otherBiz.length > 1 ? 's' : ''} issued nearby (last 90 days)`,
+          otherBiz.map(mkBizCard).join('')
+        );
+        if (permNew.length) groups += summaryGroup(
+          'New Construction', '',
+          `${permNew.length} new building${permNew.length > 1 ? 's' : ''} coming to your area — expect construction activity`,
+          permNew.map(mkPermCard).join('')
+        );
+        if (permReno.length) groups += summaryGroup(
+          'Renovation', '',
+          `${permReno.length} renovation/alteration permit${permReno.length > 1 ? 's' : ''} filed nearby`,
+          permReno.map(mkPermCard).join('')
+        );
+        if (permDemo.length) groups += summaryGroup(
+          'Demolition', 'red',
+          `${permDemo.length} building${permDemo.length > 1 ? 's' : ''} being torn down nearby`,
+          permDemo.map(mkPermCard).join('')
+        );
+        if (permMinor.length) groups += summaryGroup(
+          'Minor Work', '',
+          `${permMinor.length} minor permit${permMinor.length > 1 ? 's' : ''} filed nearby (roof, electrical, plumbing, etc.)`,
+          permMinor.map(mkPermCard).join('')
+        );
+        if (tifDistricts.length || tifDistrictRaw.length) {
+          // TIF district membership banner
+          const d = tifDistricts[0] || tifDistrictRaw[0];
+          const dName = d.tifname || d.tif_name || d.name || 'TIF District';
+          const dNum  = d.tif_number ? ` #${d.tif_number}` : '';
+          const dYrs  = (d.start_year && d.end_year) ? ` (${d.start_year}–${d.end_year})` : '';
+          groups += summaryGroup(
+            'TIF District', 'green',
+            `Your address is inside a Tax Increment Financing district`,
+            `<div class="card" style="background:#f0fdf4;border-color:#4ade80;">
+               <div style="font-weight:700;color:#15803d">${esc(dName)}${dNum}</div>
+               <div style="font-size:0.82rem;color:#555;margin-top:4px">
+                 Tax Increment Financing${dYrs} — property tax growth in this district is reinvested locally
+                 rather than going to the general fund.
+                 <a href="https://www.chicago.gov/city/en/depts/dcd/provdrs/tif.html"
+                    target="_blank" rel="noreferrer" style="color:#15803d;margin-left:4px">Learn more →</a>
+               </div>
+             </div>`
+          );
+        }
+        if (tifs.length) {
+          const total = tifs.reduce((sum, r) => sum + (parseFloat(r.approved_amount) || 0), 0);
+          groups += summaryGroup(
+            'TIF Investments', 'green',
+            `${tifs.length} TIF project${tifs.length > 1 ? 's' : ''} · ${fmtMoney(total)} total (past year)`,
+            tifs.map(r => card('TIF Investment', 'green', r.project_name || 'TIF Project', r.address,
+              `${r.tif_district || ''} · ${fmtDate(r.cdc_date)}`,
+              r.approved_amount ? fmtMoney(r.approved_amount) : null, null,
+              { 'Project': r.project_name, 'Developer': r.developer, 'District': r.tif_district, 'Approved': fmtDate(r.cdc_date), 'Subsidy %': r.tif_subsidy_percentage ? r.tif_subsidy_percentage + '%' : null },
+              r._mapId
+            )).join('')
+          );
+        }
+        if (liquorNew.length) groups += summaryGroup(
+          'Liquor License — New', '',
+          `${liquorNew.length} new liquor license${liquorNew.length > 1 ? 's' : ''} issued nearby (last 90 days)`,
+          liquorNew.map(r => card('Liquor License', '', r.legal_name || 'Business', r.address,
+            `${r.license_description || ''} · Issued ${fmtDate(r.date_issued)}`,
+            null, null,
+            { 'Business': r.legal_name, 'Type': r.license_description, 'Status': r.license_status, 'Issued': fmtDate(r.date_issued) },
+            r._mapId
+          )).join('')
+        );
+        if (liquorClosed.length) groups += summaryGroup(
+          'Liquor License — Cancelled', 'red',
+          `${liquorClosed.length} liquor license${liquorClosed.length > 1 ? 's' : ''} cancelled or revoked nearby`,
+          liquorClosed.map(r => card('Cancelled', 'red', r.legal_name || 'Business', r.address,
+            `${r.license_description || ''} · ${fmtDate(r.date_issued)}`,
+            null, null,
+            { 'Business': r.legal_name, 'Type': r.license_description, 'Status': r.license_status },
+            r._mapId
+          )).join('')
+        );
+        if (closures.length) groups += summaryGroup(
+          'Street Closures', 'orange',
+          `${closures.length} permitted street closure${closures.length > 1 ? 's' : ''} nearby`,
+          closures.map(r => card('Street Closure', 'orange',
+            [r.street_number, r.street_name].filter(Boolean).join(' ') || 'Street Closure',
+            r.from_street && r.to_street ? `${r.from_street} to ${r.to_street}` : null,
+            `${fmtDate(r.permit_start_date)}${r.permit_end_date ? ' – ' + fmtDate(r.permit_end_date) : ''}`,
+            null, null,
+            { 'Street': [r.street_number, r.street_name].filter(Boolean).join(' '), 'From': r.from_street, 'To': r.to_street, 'Start': fmtDate(r.permit_start_date), 'End': fmtDate(r.permit_end_date), 'Type': r.permit_type },
+            r._mapId
+          )).join('')
+        );
+
+        html += section('Development & Permits',
+          bizAll.length + permits.length + tifDistrictRaw.length + tifs.length + liquorAll.length + closures.length, groups);
+      }
+
+      // ── 311 Requests ──
+      {
+        const srAll    = s.sr_requests || [];
+        const srOpen   = srAll.filter(r => !r.closed_date);
+        const srClosed = srAll.filter(r =>  r.closed_date);
+
+        function mkSrCard(r, isOpen) {
+          return card(
+            isOpen ? '311 Open' : '311 Completed',
+            isOpen ? 'orange' : 'green',
+            r.sr_type || 'Service Request', r.street_address,
+            isOpen
+              ? `Filed ${fmtDate(r.created_date)}${r.ward ? ' · Ward ' + r.ward : ''}`
+              : `Completed ${fmtDate(r.closed_date)}`,
+            null, null,
+            { 'Request #': r.sr_number, 'Type': r.sr_type, 'Filed': fmtDate(r.created_date),
+              'Completed': r.closed_date ? fmtDate(r.closed_date) : null,
+              'Status': tip(r.status, r.status), 'Address': r.street_address, 'Area': r.community_area },
+            r._mapId
+          );
+        }
+
+        let groups = '';
+        if (srOpen.length) {
+          const typeCounts = {};
+          srOpen.forEach(r => { const t = r.sr_type || 'Other'; typeCounts[t] = (typeCounts[t] || 0) + 1; });
+          const topTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3)
+            .map(([t, n]) => `${n} ${t.toLowerCase()}`).join(', ');
+          groups += summaryGroup(
+            '311 Open', 'orange',
+            `${srOpen.length} open request${srOpen.length > 1 ? 's' : ''}${topTypes ? ' · ' + topTypes : ''}`,
+            srOpen.map(r => mkSrCard(r, true)).join('')
+          );
+        }
+        if (srClosed.length) groups += summaryGroup(
+          '311 Completed', 'green',
+          `${srClosed.length} completed request${srClosed.length > 1 ? 's' : ''} in the last 90 days`,
+          srClosed.map(r => mkSrCard(r, false)).join('')
+        );
+
+        html += section('311 Requests', srAll.length, groups);
+      }
+
+      // ── Food Inspections ──
+      {
+        const foods    = s.food_inspections || [];
+        const foodFail = foods.filter(r => /fail/i.test(r.results || ''));
+        const foodCond = foods.filter(r => /conditional/i.test(r.results || ''));
+        const foodPass = foods.filter(r => !/fail|conditional/i.test(r.results || ''));
+
+        function mkFoodCard(r) {
+          const fail = /fail/i.test(r.results || '');
+          const cond = /conditional/i.test(r.results || '');
+          return card(
+            fail ? 'Failed' : cond ? 'Conditional Pass' : 'Passed',
+            fail ? 'red' : cond ? 'orange' : 'green',
+            r.dba_name || 'Food Establishment', r.address,
+            `Inspected ${fmtDate(r.inspection_date)}`,
+            null, fail ? 'Must correct violations and pass a re-inspection before reopening.' : null,
+            { 'Result': tip(r.results, r.results), 'Inspected': fmtDate(r.inspection_date), 'Address': r.address },
+            r._mapId
+          );
+        }
+
+        let groups = '';
+        if (foodFail.length) groups += summaryGroup(
+          'Failed', 'red',
+          `${foodFail.length} failed inspection${foodFail.length > 1 ? 's' : ''} ${tip('', 'FOOD_FAIL')}`,
+          foodFail.map(mkFoodCard).join('')
+        );
+        if (foodCond.length) groups += summaryGroup(
+          'Conditional Pass', 'orange',
+          `${foodCond.length} conditional pass${foodCond.length > 1 ? 'es' : ''} ${tip('', 'FOOD_COND')}`,
+          foodCond.map(mkFoodCard).join('')
+        );
+        if (foodPass.length) groups += summaryGroup(
+          'Passed', 'green',
+          `${foodPass.length} passed inspection${foodPass.length > 1 ? 's' : ''}`,
+          foodPass.map(mkFoodCard).join('')
+        );
+        html += section('Food Inspections', foods.length, groups);
+      }
+
+      // ── Building Violations ──
+      {
+        const viols = s.building_violations || [];
+        let groups = '';
+        if (viols.length) groups += summaryGroup(
+          'Building Violations', 'red',
+          `${viols.length} code violation${viols.length > 1 ? 's' : ''} ${tip('', 'BUILDING_VIOLATION')}`,
+          viols.map(r => card('Violation', 'red',
+            r.violation_description || 'Code Violation', r.address,
+            `${fmtDate(r.violation_date)} · ${r.inspection_status || ''}`,
+            null, null,
+            { 'Violation': r.violation_description, 'Date': fmtDate(r.violation_date), 'Status': tip(r.inspection_status, r.inspection_status), 'Address': r.address },
+            r._mapId
+          )).join('')
+        );
+        html += section('Building Violations', viols.length, groups);
+      }
+
+      // ── Safety & Traffic (individual cards so map markers link to panel) ──
+      {
+        const crashes = s.traffic_crashes || [];
+        const crimes  = s.crimes || [];
+
+        let groups = '';
+        if (crashes.length) {
+          // Group cards by street for the summary header text, but render individual cards
+          const streetCounts = {};
+          crashes.forEach(r => { const t = r.street_name || 'area'; streetCounts[t] = (streetCounts[t] || 0) + 1; });
+          const topStreets = Object.entries(streetCounts).sort((a, b) => b[1] - a[1]).slice(0, 2)
+            .map(([s, n]) => `${n} on ${s}`).join(', ');
+          groups += summaryGroup(
+            'Traffic Crashes', 'red',
+            `${crashes.length} crash${crashes.length > 1 ? 'es' : ''} nearby (last 90 days)${topStreets ? ' · ' + topStreets : ''}`,
+            crashes.map(r => card('Traffic Crash', 'red',
+              r.crash_type || 'Crash',
+              r.street_name || '',
+              `${fmtDate(r.crash_date)}${r.injuries_total > 0 ? ' · ' + r.injuries_total + ' injured' : ''}`,
+              null,
+              r.injuries_total > 0 ? `${r.most_severe_injury || 'Injuries'} reported.` : null,
+              { 'Type': r.crash_type, 'Date': fmtDate(r.crash_date), 'Injuries': r.injuries_total || 0, 'Severity': r.most_severe_injury, 'Street': r.street_name },
+              r._mapId
+            )).join('')
+          );
+        }
+        if (crimes.length) {
+          const typeCounts = {};
+          crimes.forEach(r => { typeCounts[r.primary_type] = (typeCounts[r.primary_type] || 0) + 1; });
+          const topTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3)
+            .map(([t, n]) => `${n} ${t.toLowerCase()}`).join(', ');
+          groups += summaryGroup(
+            'Crimes Reported', 'red',
+            `${crimes.length} incident${crimes.length > 1 ? 's' : ''} nearby (last 30 days)${topTypes ? ' · ' + topTypes : ''}`,
+            crimes.map(r => card('Crime', 'red',
+              r.primary_type || 'Incident',
+              r.location_description || '',
+              `${fmtDate(r.date)}${r.description ? ' · ' + r.description : ''}`,
+              null, null,
+              { 'Type': r.primary_type, 'Description': r.description, 'Location': r.location_description, 'Date': fmtDate(r.date) },
+              r._mapId
+            )).join('')
+          );
+        }
+        html += section('Safety & Traffic', crashes.length + crimes.length, groups);
+      }
+
+      // ── Permitted Events ──
+      {
+        const parties = s.block_parties || [];
+        const parkEvts = s.park_events || [];
+        let groups = '';
+
+        if (parties.length) groups += summaryGroup(
+          'Block Parties — Upcoming', '',
+          `${parties.length} permitted block part${parties.length > 1 ? 'ies' : 'y'} coming up nearby`,
+          parties.map(r => {
+            const streets = [r.direction, r.streetname, r.suffix].filter(Boolean).join(' ') || 'Nearby street';
+            return card('Block Party', '', streets, null,
+              `${fmtDate(r.applicationstartdate)}${r.applicationenddate && r.applicationenddate !== r.applicationstartdate ? ' – ' + fmtDate(r.applicationenddate) : ''}`,
+              null, r.streetclosure ? `Closure: ${r.streetclosure}` : null,
+              { 'Street': streets, 'Start': fmtDate(r.applicationstartdate), 'End': fmtDate(r.applicationenddate), 'Closure': r.streetclosure },
+              r._mapId
+            );
+          }).join('')
+        );
+
+        if (parkEvts.length) {
+          function mkParkCard(r) {
+            const when = fmtDate(r.reservation_start_date) + (r.reservation_end_date && r.reservation_end_date !== r.reservation_start_date ? ' – ' + fmtDate(r.reservation_end_date) : '');
+            const facility = r.park_facility_name || '';
+            const parkLabel = r.park_name || '';
+            const title = r.event_description || r.event_type || 'Event';
+            const subtitle = [parkLabel, facility].filter(Boolean).join(' · ') || facility;
+            return card('Park Event', '',
+              title,
+              subtitle,
+              (r.park_address ? r.park_address + ' · ' : '') + when,
+              null, null,
+              { 'Event': title, 'Facility': facility, 'Park': parkLabel, 'Address': r.park_address,
+                'Date': when, 'Type': r.event_type || null, 'Status': r.permit_status || null,
+                'Organization': r.organization && r.organization !== '--' ? r.organization : null },
+              r._mapId
+            );
+          }
+          groups += summaryGroup(
+            'Park Events — Upcoming', '',
+            `${parkEvts.length} upcoming event${parkEvts.length > 1 ? 's' : ''} at nearby parks`,
+            parkEvts.map(mkParkCard).join('')
+          );
+        }
+
+        const markets = s.farmers_markets || [];
+        if (markets.length) groups += summaryGroup(
+          'Farmers Markets', '',
+          `${markets.length} farmers market${markets.length > 1 ? 's' : ''} within walking distance`,
+          markets.map(r => card('Farmers Market', '', r.market_name || 'Farmers Market',
+            r.location_description || null, r.days_hours || null, null, null,
+            { 'Market': r.market_name, 'Location': r.location_description, 'Hours': r.days_hours },
+            r._mapId
+          )).join('')
+        );
+
+        html += section('Permitted Events & Markets', parties.length + parkEvts.length + markets.length, groups);
+      }
+
+      // ── City Services ──
+      {
+        const potholes  = s.potholes_patched || [];
+        const lights    = s.streetlight_outages || [];
+        const trees     = s.tree_trims || [];
+        let groups = '';
+        if (potholes.length) {
+          const total = potholes.reduce((sum, r) => sum + (parseInt(r.number_of_potholes_filled_on_block) || 0), 0);
+          groups += summaryGroup(
+            'Potholes Patched', 'green',
+            `${total} pothole${total !== 1 ? 's' : ''} filled across ${potholes.length} block${potholes.length > 1 ? 's' : ''} (last 90 days)`,
+            potholes.slice(0, 8).map(r => card('Pothole Patched', 'green',
+              `${r.number_of_potholes_filled_on_block || '?'} pothole${r.number_of_potholes_filled_on_block !== '1' ? 's' : ''} filled`,
+              r.address, fmtDate(r.completion_date), null, null,
+              { 'Potholes': r.number_of_potholes_filled_on_block, 'Completed': fmtDate(r.completion_date), 'Address': r.address },
+              r._mapId
+            )).join('')
+          );
+        }
+        if (lights.length) {
+          const open = lights.filter(r => !r.completion_date);
+          const done = lights.filter(r =>  r.completion_date);
+          if (open.length) groups += summaryGroup(
+            'Streetlights Out', 'orange',
+            `${open.length} open streetlight outage${open.length > 1 ? 's' : ''} nearby (last 30 days)`,
+            open.map(r => card('Streetlight Out', 'orange', r.street_address || 'Streetlight outage', null,
+              `Reported ${fmtDate(r.creation_date)}`, null, null,
+              { 'Address': r.street_address, 'Reported': fmtDate(r.creation_date), 'Status': r.status },
+              r._mapId
+            )).join('')
+          );
+          if (done.length) groups += summaryGroup(
+            'Streetlights Repaired', 'green',
+            `${done.length} streetlight repair${done.length > 1 ? 's' : ''} completed nearby`,
+            done.map(r => card('Repaired', 'green', r.street_address || 'Streetlight', null,
+              `Fixed ${fmtDate(r.completion_date)}`, null, null,
+              { 'Address': r.street_address, 'Fixed': fmtDate(r.completion_date) },
+              r._mapId
+            )).join('')
+          );
+        }
+        if (trees.length) {
+          const open = trees.filter(r => !r.completion_date);
+          const done = trees.filter(r =>  r.completion_date);
+          if (open.length) groups += summaryGroup(
+            'Tree Work — Pending', '',
+            `${open.length} pending tree trim/removal request${open.length > 1 ? 's' : ''} nearby`,
+            open.map(r => card('Tree Work', '', r.address || 'Tree work', null,
+              `Requested ${fmtDate(r.creation_date)}`, null, null,
+              { 'Address': r.address, 'Requested': fmtDate(r.creation_date), 'Status': r.status },
+              r._mapId
+            )).join('')
+          );
+          if (done.length) groups += summaryGroup(
+            'Tree Work — Completed', 'green',
+            `${done.length} tree work request${done.length > 1 ? 's' : ''} completed nearby`,
+            done.map(r => card('Done', 'green', r.address || 'Tree work', null,
+              `Completed ${fmtDate(r.completion_date)}`, null, null,
+              { 'Address': r.address, 'Completed': fmtDate(r.completion_date) },
+              r._mapId
+            )).join('')
+          );
+        }
+        html += section('City Services', potholes.length + lights.length + trees.length, groups);
+      }
+
+      // ── Getting Around ──
+      {
+        const busStops  = s.cta_bus_stops || [];
+        const lStops    = s.cta_l_stops || [];
+        const speedCams = s.speed_cameras || [];
+        const rlCams    = s.red_light_cameras || [];
+        let groups = '';
+
+        if (busStops.length) groups += summaryGroup(
+          'CTA Bus Stops', '',
+          `${busStops.length} bus stop${busStops.length > 1 ? 's' : ''} within your search radius`,
+          busStops.map(r => card('Bus Stop', '', r.stop_name || 'Bus Stop',
+            [r.street, r.cross_st].filter(Boolean).join(' & ') || null,
+            r.routesstpg ? `Routes: ${r.routesstpg}` : null,
+            null, null, null, r._mapId
+          )).join('')
+        );
+        if (lStops.length) groups += summaryGroup(
+          'CTA L Stops', '',
+          `${lStops.length} L stop${lStops.length > 1 ? 's' : ''} within your search radius`,
+          lStops.map(r => {
+            const lines = ['red','blue','g','brn','p','y','pnk','o']
+              .filter(k => r[k] === true || r[k] === 'true')
+              .map(k => ({ red:'Red',blue:'Blue',g:'Green',brn:'Brown',p:'Purple',y:'Yellow',pnk:'Pink',o:'Orange'}[k]))
+              .join(', ');
+            return card('L Stop', '', r.station_name || r.stop_name, null,
+              lines || r.station_descriptive_name || null, null, null, null, r._mapId
+            );
+          }).join('')
+        );
+        if (speedCams.length) groups += summaryGroup(
+          'Speed Cameras', 'gray',
+          `${speedCams.length} speed camera${speedCams.length > 1 ? 's' : ''} on your block — fines apply 6+ mph over limit`,
+          speedCams.map(r => card('Speed Camera', 'gray', r.address || 'Speed Camera', null,
+            [r.first_approach, r.second_approach].filter(Boolean).join(' / ') || null,
+            null, null, null, r._mapId
+          )).join('')
+        );
+        if (rlCams.length) groups += summaryGroup(
+          'Red Light Cameras', 'gray',
+          `${rlCams.length} red light camera${rlCams.length > 1 ? 's' : ''} on your block`,
+          rlCams.map(r => card('Red Light Camera', 'gray', r.intersection || 'Camera', null,
+            [r.first_approach, r.second_approach].filter(Boolean).join(' / ') || null,
+            null, null, null, r._mapId
+          )).join('')
+        );
+
+        html += section('Getting Around', busStops.length + lStops.length + speedCams.length + rlCams.length, groups);
+      }
+
+      // ── Neighborhood Resources ──
+      {
+        const libs    = s.libraries || [];
+        const schools = s.cps_schools || [];
+        let groups = '';
+
+        if (libs.length) groups += summaryGroup(
+          'Libraries', '',
+          `${libs.length} Chicago Public Library branch${libs.length > 1 ? 'es' : ''} nearby`,
+          libs.map(r => card('Library', '', r.name || 'Library', r.address,
+            r.hours_of_operation || null, null, null,
+            { 'Branch': r.name, 'Address': r.address, 'Hours': r.hours_of_operation, 'Phone': r.phone },
+            r._mapId
+          )).join('')
+        );
+        if (schools.length) groups += summaryGroup(
+          'CPS Schools', '',
+          `${schools.length} Chicago Public School${schools.length > 1 ? 's' : ''} within your search radius`,
+          schools.map(r => card('CPS School', '', r.school_nm || 'School', r.address,
+            r.grades ? `Grades ${r.grades}` : null, null, null,
+            { 'School': r.school_nm, 'Grades': r.grades, 'Address': r.address, 'Phone': r.phone },
+            r._mapId
+          )).join('')
+        );
+
+        html += section('Neighborhood Resources', libs.length + schools.length, groups);
+      }
+
+      const el = document.getElementById('results');
+      el.innerHTML = html;
+      el.style.display = '';
+    }
+  </script>
+</body>
+</html>
