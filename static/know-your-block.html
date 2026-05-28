@@ -282,7 +282,7 @@
       cta_bus_stops:       { color: '#00897b', label: 'CTA Bus Stop' },
       cta_l_stops:         { color: '#00897b', label: 'CTA L Stop' },
       libraries:           { color: '#5c35cc', label: 'Library' },
-      cps_schools:         { color: '#5c35cc', label: 'CPS School' },
+      cps_schools:         { color: '#5c35cc', label: 'School' },
       speed_cameras:       { color: '#868e96', label: 'Speed Camera' },
       red_light_cameras:   { color: '#868e96', label: 'Red Light Camera' },
     };
@@ -341,7 +341,7 @@
         case 'libraries':
           return `<b>📚 ${esc(r.name)}</b><br><small>${esc(r.address)}</small><br><small>${esc((r.hours_of_operation || '').slice(0, 60))}</small>`;
         case 'cps_schools':
-          return `<b>🏫 ${esc(r.school_nm)}</b><br><small>${esc(r.grades)}</small><br><small>${esc(r.address)}</small>`;
+          return `<b>🏫 ${esc(r.school_nm)}</b>${r.is_cps ? ' <span style="font-size:0.75em;background:#1a56a0;color:#fff;border-radius:3px;padding:1px 4px">CPS</span>' : ''}<br><small>${esc(r.grades)}</small><br><small>${esc(r.address)}</small>`;
         case 'speed_cameras':
           return `<b>📷 Speed Camera</b><br><small>${esc(r.address)}</small>`;
         case 'red_light_cameras':
@@ -1240,11 +1240,13 @@
           )).join('')
         );
         if (schools.length) groups += summaryGroup(
-          'CPS Schools', '',
-          `${schools.length} Chicago Public School${schools.length > 1 ? 's' : ''} within your search radius`,
-          schools.map(r => card('CPS School', '', r.school_nm || 'School', r.address,
+          'Schools', '',
+          `${schools.length} school${schools.length > 1 ? 's' : ''} within your search radius`,
+          schools.map(r => card(
+            r.is_cps ? 'CPS School' : 'School', '',
+            r.school_nm || 'School', r.address,
             r.grades ? `Grades ${r.grades}` : null, null, null,
-            { 'School': r.school_nm, 'Grades': r.grades, 'Address': r.address, 'Phone': r.phone },
+            { 'School': r.school_nm, 'Grades': r.grades || '—', 'Address': r.address || '—', 'Phone': r.phone || '—', 'Operator': r.is_cps ? 'Chicago Public Schools' : 'Other' },
             r._mapId
           )).join('')
         );
@@ -1256,6 +1258,16 @@
       el.innerHTML = html;
       el.style.display = '';
     }
+
+    // Auto-populate and search when ?address= is in the URL (e.g. from email links)
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const addr = params.get('address');
+      if (addr) {
+        input.value = addr;
+        search();
+      }
+    })();
   </script>
 </body>
 </html>

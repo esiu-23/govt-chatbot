@@ -19,6 +19,7 @@ _BASE = "https://data.cityofchicago.org/resource"
 _COOK_BASE = "https://datacatalog.cookcountyil.gov/resource"
 _TOKEN = os.environ.get("SOCRATA_APP_TOKEN", "")
 _NOMINATIM = "https://nominatim.openstreetmap.org/search"
+_OVERPASS = "https://overpass-api.de/api/interpreter"
 
 # Mirrors pin_lookup.ts from neighborhood-map repo
 _DIRECTIONS: dict[str, str] = {
@@ -42,6 +43,190 @@ def _fetch_json(url: str, headers: dict, timeout: int = 10) -> list | dict | Non
     except Exception as e:
         logger.warning("[kyb] fetch %s: %s", url[:80], e)
         return None
+
+
+def _overpass_addr(tags: dict) -> str:
+    """Build a short address string from OSM addr:* tags."""
+    num = tags.get("addr:housenumber", "")
+    street = tags.get("addr:street", "")
+    full = tags.get("addr:full", "")
+    if num and street:
+        return f"{num} {street}"
+    return full
+
+
+def _fetch_overpass_libraries(lat: float, lng: float, radius_m: int, limit: int = 5) -> list[dict]:
+    """Fetch nearby libraries from Overpass API, normalized for the email template."""
+    query = (
+        f"[out:json][timeout:15];"
+        f"(node[\"amenity\"=\"library\"](around:{radius_m},{lat},{lng});"
+        f"way[\"amenity\"=\"library\"](around:{radius_m},{lat},{lng}););"
+        f"out center {limit};"
+    )
+    url = f"{_OVERPASS}?" + urllib.parse.urlencode({"data": query})
+    data = _fetch_json(url, {"User-Agent": "TheGovernmentAndMe/1.0"}, timeout=20)
+    if not isinstance(data, dict):
+        return []
+    out = []
+    for el in data.get("elements", []):
+        tags = el.get("tags") or {}
+        clat = el.get("lat") or (el.get("center") or {}).get("lat")
+        clng = el.get("lon") or (el.get("center") or {}).get("lon")
+        out.append({
+            "name": tags.get("name") or "Library",
+            "address": _overpass_addr(tags),
+            "hours_of_operation": tags.get("opening_hours") or "",
+            "phone": tags.get("phone") or tags.get("contact:phone") or "",
+            "latitude": str(clat) if clat else "",
+            "longitude": str(clng) if clng else "",
+        })
+    return out
+
+
+def _reverse_geocode_addr(lat: float, lng: float) -> str:
+    """Short address via Nominatim reverse geocoding — used as fallback when OSM has no addr tags."""
+    url = "https://nominatim.openstreetmap.org/reverse?" + urllib.parse.urlencode(
+        {"format": "json", "lat": lat, "lon": lng, "zoom": 18}
+    )
+    data = _fetch_json(url, {"User-Agent": "TheGovernmentAndMe/1.0"}, timeout=8)
+    if not isinstance(data, dict):
+        return ""
+    addr = data.get("address", {})
+    num = addr.get("house_number", "")
+    road = addr.get("road", "")
+    if num and road:
+        return f"{num} {road}"
+    return road
+
+
+def _fetch_overpass_schools(lat: float, lng: float, radius_m: int, limit: int = 10) -> list[dict]:
+    """Fetch nearby schools from Overpass, with CPS detection and address fallback."""
+    query = (
+        f"[out:json][timeout:15];"
+        f"(node[\"amenity\"=\"school\"](around:{radius_m},{lat},{lng});"
+        f"way[\"amenity\"=\"school\"](around:{radius_m},{lat},{lng}););"
+        f"out center {limit};"
+    )
+    url = f"{_OVERPASS}?" + urllib.parse.urlencode({"data": query})
+    data = _fetch_json(url, {"User-Agent": "TheGovernmentAndMe/1.0"}, timeout=20)
+    if not isinstance(data, dict):
+        return []
+    out = []
+    needs_geocode: list[tuple[int, float, float]] = []
+    for el in data.get("elements", []):
+        tags = el.get("tags") or {}
+        clat = el.get("lat") or (el.get("center") or {}).get("lat")
+        clng = el.get("lon") or (el.get("center") or {}).get("lon")
+        operator = tags.get("operator") or ""
+        is_cps = bool(operator and ("chicago public schools" in operator.lower() or operator.upper() == "CPS"))
+        addr = _overpass_addr(tags)
+        record = {
+            "school_nm": tags.get("name") or "School",
+            "grades": tags.get("grades") or tags.get("grade") or "",
+            "address": addr,
+            "phone": tags.get("phone") or tags.get("contact:phone") or "",
+            "is_cps": is_cps,
+            "latitude": str(clat) if clat else "",
+            "longitude": str(clng) if clng else "",
+        }
+        out.append(record)
+        if not addr and clat and clng:
+            needs_geocode.append((len(out) - 1, float(clat), float(clng)))
+
+    if needs_geocode:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futs = {pool.submit(_reverse_geocode_addr, rlat, rlng): idx
+                    for idx, rlat, rlng in needs_geocode}
+            for fut in as_completed(futs):
+                idx = futs[fut]
+                try:
+                    out[idx]["address"] = fut.result()
+                except Exception:
+                    pass
+    return out
+
+
+def _fetch_overpass_parks(lat: float, lng: float, radius_m: int, limit: int = 8) -> list[dict]:
+    """Fetch nearby parks from Overpass API."""
+    query = (
+        f"[out:json][timeout:15];"
+        f"(way[\"leisure\"=\"park\"](around:{radius_m},{lat},{lng});"
+        f"relation[\"leisure\"=\"park\"](around:{radius_m},{lat},{lng}););"
+        f"out center {limit};"
+    )
+    url = f"{_OVERPASS}?" + urllib.parse.urlencode({"data": query})
+    data = _fetch_json(url, {"User-Agent": "TheGovernmentAndMe/1.0"}, timeout=20)
+    if not isinstance(data, dict):
+        return []
+    out = []
+    for el in data.get("elements", []):
+        tags = el.get("tags") or {}
+        center = el.get("center") or {}
+        clat = center.get("lat")
+        clng = center.get("lon")
+        name = tags.get("name")
+        if not name:
+            continue
+        out.append({
+            "label": name,
+            "location": _overpass_addr(tags),
+            "hours": tags.get("opening_hours") or "",
+            "latitude": str(clat) if clat else "",
+            "longitude": str(clng) if clng else "",
+        })
+    return out
+
+
+def _fetch_overpass_bus_stops(lat: float, lng: float, radius_m: int, limit: int = 15) -> list[dict]:
+    """Fetch nearby CTA bus stops from Overpass API."""
+    query = (
+        f"[out:json][timeout:15];"
+        f"node[\"highway\"=\"bus_stop\"](around:{radius_m},{lat},{lng});"
+        f"out {limit};"
+    )
+    url = f"{_OVERPASS}?" + urllib.parse.urlencode({"data": query})
+    data = _fetch_json(url, {"User-Agent": "TheGovernmentAndMe/1.0"}, timeout=20)
+    if not isinstance(data, dict):
+        return []
+    out = []
+    for el in data.get("elements", []):
+        tags = el.get("tags") or {}
+        routes = tags.get("route_ref") or tags.get("routes") or ""
+        name = tags.get("name") or tags.get("ref") or "Bus Stop"
+        out.append({
+            "stop_name": name,
+            "routesstpg": routes,
+            "street": tags.get("addr:street") or "",
+            "latitude": str(el.get("lat", "")),
+            "longitude": str(el.get("lon", "")),
+        })
+    return out
+
+
+def _fetch_overpass_farmers_markets(lat: float, lng: float, radius_m: int, limit: int = 5) -> list[dict]:
+    """Fetch nearby farmers markets from Overpass API."""
+    query = (
+        f"[out:json][timeout:15];"
+        f"(node[\"amenity\"=\"marketplace\"][\"name\"~\"farm\",i](around:{radius_m},{lat},{lng});"
+        f"node[\"shop\"=\"farm\"](around:{radius_m},{lat},{lng});"
+        f"node[\"amenity\"=\"marketplace\"][\"market\"=\"farmers\"](around:{radius_m},{lat},{lng}););"
+        f"out {limit};"
+    )
+    url = f"{_OVERPASS}?" + urllib.parse.urlencode({"data": query})
+    data = _fetch_json(url, {"User-Agent": "TheGovernmentAndMe/1.0"}, timeout=20)
+    if not isinstance(data, dict):
+        return []
+    out = []
+    for el in data.get("elements", []):
+        tags = el.get("tags") or {}
+        out.append({
+            "market_name": tags.get("name") or "Farmers Market",
+            "location_description": _overpass_addr(tags) or tags.get("description") or "",
+            "days_hours": tags.get("opening_hours") or "",
+            "latitude": str(el.get("lat", "")),
+            "longitude": str(el.get("lon", "")),
+        })
+    return out
 
 
 def _parse_address(raw: str) -> tuple[str, str | None, str] | None:
@@ -340,16 +525,7 @@ def know_your_block():
             "$select": "permit_type,street_number,street_name,from_street,to_street,permit_start_date,permit_end_date,latitude,longitude",
             "$limit": "15",
         }),
-        "libraries": ("wa2i-tm5d", {
-            "$where": geo,
-            "$select": "name,address,hours_of_operation,phone,location",
-            "$limit": "5",
-        }),
-        "cps_schools": ("wg9x-4ke6", {
-            "$where": geo,
-            "$select": "school_nm,grades,address,phone,location",
-            "$limit": "10",
-        }),
+        # libraries and cps_schools now come from Overpass (see below)
         "speed_cameras": ("4i42-qv3h", {
             "$where": geo,
             "$select": "address,first_approach,second_approach,location",
@@ -372,29 +548,20 @@ def know_your_block():
             "$select": "address,status,creation_date,completion_date,latitude,longitude",
             "$limit": "10",
         }),
-        "farmers_markets": ("atzs-u7pv", {
-            "$where": geo,
-            "$select": "market_name,location_description,days_hours,location",
-            "$limit": "5",
-        }),
+        # farmers_markets and cta_bus_stops now come from Overpass (see below)
     }
 
-    # CTA bus stops use the_geom (not location) — add separately
-    cta_bus_where = _geo_field("the_geom", lat, lng, radius_m)
     cta_l_where = geo  # 8pix-ypme uses location (Socrata Location type)
 
     results = {}
-    with ThreadPoolExecutor(max_workers=24) as executor:
+    with ThreadPoolExecutor(max_workers=26) as executor:
         futures = {
             executor.submit(_get, did, params): key
             for key, (did, params) in queries.items()
         }
         futures[executor.submit(_fetch_park_events, lat, lng, radius_m, now)] = "park_events"
-        futures[executor.submit(_get, "hvnx-qtky", {
-            "$where": cta_bus_where,
-            "$select": "stop_name,street,cross_st,routesstpg,the_geom",
-            "$limit": "15",
-        })] = "cta_bus_stops"
+        futures[executor.submit(_fetch_overpass_bus_stops, lat, lng, radius_m, 15)] = "cta_bus_stops"
+        futures[executor.submit(_fetch_overpass_farmers_markets, lat, lng, radius_m, 5)] = "farmers_markets"
         futures[executor.submit(_get, "8pix-ypme", {
             "$where": cta_l_where,
             "$select": "stop_name,station_name,station_descriptive_name,red,blue,g,brn,p,y,pnk,o,location",
@@ -406,6 +573,8 @@ def know_your_block():
             "$select": "tifname,tif_number,status,start_year,end_year",
             "$limit": "3",
         })] = "tif_district"
+        futures[executor.submit(_fetch_overpass_libraries, lat, lng, radius_m, 5)] = "libraries"
+        futures[executor.submit(_fetch_overpass_schools, lat, lng, radius_m, 10)] = "cps_schools"
         for future in as_completed(futures):
             key = futures[future]
             try:

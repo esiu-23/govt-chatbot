@@ -387,14 +387,16 @@ def render_block_brief_confirm(address: str, confirm_url: str) -> str:
 
 def render_block_brief_welcome(address: str, lat: float, lng: float,
                                 prefs: list, services: dict, unsub_url: str) -> str:
+    import urllib.parse as _up
     addr     = _h(address)
     unsub    = _h(unsub_url)
     pref_set = set(prefs or [])
+    kyb_url  = "https://thegovernmentandme.tools/know-your-block?address=" + _up.quote(address)
 
     def _section(title: str, rows: list[str]) -> str:
         if not rows:
             return ""
-        items = "".join(f'<div class="item">{r}</div>' for r in rows[:6])
+        items = "".join(f'<a class="item" href="{kyb_url}">{r}</a>' for r in rows[:6])
         return f'<div class="section"><div class="section-title">{_h(title)}</div>{items}</div>'
 
     sections_html = ""
@@ -420,12 +422,12 @@ def render_block_brief_welcome(address: str, lat: float, lng: float,
 
     schools = services.get("cps_schools") or []
     if schools:
-        sections_html += _section("CPS Schools", [
-            f"<strong>{_h(r.get('school_nm','School'))}</strong>"
-            + (f" · Grades {_h(r['grades'])}" if r.get("grades") else "")
-            + (f"<br>{_h(r['address'])}" if r.get("address") else "")
-            for r in schools
-        ])
+        def _school_row(r):
+            badge = " <span style='font-size:0.75em;color:#fff;background:#1a56a0;border-radius:3px;padding:1px 5px'>CPS</span>" if r.get("is_cps") else ""
+            grades = f" · Grades {_h(r['grades'])}" if r.get("grades") else ""
+            addr = f"<br>{_h(r['address'])}" if r.get("address") else ""
+            return f"<strong>{_h(r.get('school_nm','School'))}</strong>{badge}{grades}{addr}"
+        sections_html += _section("Schools", [_school_row(r) for r in schools])
 
     buses = services.get("cta_bus_stops") or []
     if buses:
@@ -480,8 +482,10 @@ def render_block_brief_welcome(address: str, lat: float, lng: float,
   .section-title {{ font-size: 11px; font-weight: 700; text-transform: uppercase;
                     letter-spacing: 0.5px; color: #003F87; border-bottom: 1px solid #e8ecf4;
                     padding-bottom: 5px; margin-bottom: 10px; }}
-  .item {{ background: #f8fafc; border: 1px solid #dde3ed; border-radius: 6px;
-           padding: 9px 12px; margin-bottom: 6px; font-size: 13px; line-height: 1.5; color: #333; }}
+  .item {{ display: block; background: #f8fafc; border: 1px solid #dde3ed; border-radius: 6px;
+           padding: 9px 12px; margin-bottom: 6px; font-size: 13px; line-height: 1.5; color: #333;
+           text-decoration: none; }}
+  .item:hover {{ background: #eef2fb; border-color: #b8c8e8; }}
   .meta {{ font-size: 13px; color: #666; margin: 0 0 18px; }}
   .foot {{ background: #f9f9f9; border-top: 1px solid #e5e5e5; padding: 14px 28px;
            font-size: 12px; color: #888; text-align: center; }}
