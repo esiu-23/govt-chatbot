@@ -117,11 +117,14 @@ def _fetch_overpass_schools(lat: float, lng: float, radius_m: int, limit: int = 
         tags = el.get("tags") or {}
         clat = el.get("lat") or (el.get("center") or {}).get("lat")
         clng = el.get("lon") or (el.get("center") or {}).get("lon")
+        name = tags.get("name") or ""
+        if not name:
+            continue
         operator = tags.get("operator") or ""
         is_cps = bool(operator and ("chicago public schools" in operator.lower() or operator.upper() == "CPS"))
         addr = _overpass_addr(tags)
         record = {
-            "school_nm": tags.get("name") or "School",
+            "school_nm": name,
             "grades": tags.get("grades") or tags.get("grade") or "",
             "address": addr,
             "phone": tags.get("phone") or tags.get("contact:phone") or "",

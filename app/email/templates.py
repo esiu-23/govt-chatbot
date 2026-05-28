@@ -99,6 +99,8 @@ def _shell(header_label: str, header_title: str, header_date: str, body_html: st
     {body_html}
   </div>
   <div class="footer">
+    <em>The contents of this email are auto-generated from live Chicago Open Data sources.
+    Always check the original sources for important or time-sensitive information.</em><br><br>
     You're receiving this because you subscribed to updates at
     <a href="{BASE_URL}">thegovernmentandme.tools</a>.<br>
     <a href="{_h(unsub_url)}">Unsubscribe</a>
