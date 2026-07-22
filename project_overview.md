@@ -50,6 +50,54 @@ All HTML-serving routes set `Cache-Control: no-store` via `_no_cache()`.
 
 ---
 
+## Standalone Analysis Scripts
+
+### 311 & Multi-Source Topic Analysis (`explore_311_data.ipynb`, `analyze_311_topics.ipynb`, `analyze_multisource_topics.ipynb`)
+
+Jupyter notebooks for hierarchical BERTopic analysis of Chicago open data sources (2019–2026), producing interactive visualizations and CSVs for future legislative-topic comparison by community area.
+
+**Notebooks:**
+- `explore_311_data.ipynb` — Exploratory: fetches sample records, checks field completeness, cross-tabs sr_type × community_area × year. Key finding: 110 unique sr_types, no free-form text, `community_area` 99.9% complete.
+- `analyze_311_topics.ipynb` — Full BERTopic pipeline for 311 data only: 12 major topics from 109 unique sr_type strings.
+- `analyze_multisource_topics.ipynb` — Extends analysis to 4 Socrata datasets: 311 requests (12 topics), crime (6), building permits (5), business licenses (10).
+
+**Key technical notes:**
+- Geographic unit: `community_area` (77 stable zones; Chicago redistricted wards in May 2023, making ward data inconsistent 2019–2026)
+- Scale: Socrata `$group` aggregation returns sr_type × community_area × year counts (~66K rows); BERTopic runs only on unique type strings (~6–110 per source)
+- BERTopic pattern: `embedding_model=None` + pre-computed embeddings passed to `fit_transform(..., embeddings=embs)` — avoids BERTopic 0.17 / sentence-transformers 2.x incompatibility (`StaticEmbedding` import failure)
+- Filter: "311 INFORMATION ONLY CALL" excluded from 311 analysis (catch-all, 35.5% of records)
+- Kernel: `govt-chatbot-311` (registered in project venv)
+
+**Outputs (`311_analysis/`):**
+- Per-source CSVs: `311_topics_by_community.csv`, `crime_topics_by_community.csv`, `building_permits_topics_by_community.csv`, `business_licenses_topics_by_community.csv`
+- `community_dominant_topics.csv` — wide format, one row per community area, dominant topic per source
+- `multisource_topic_summary.csv` — all topics across all sources with cohesion scores
+- Interactive HTML: sunburst with community area dropdown, heatmap, trend lines, group strength chart — per source + combined
+
+**Datasets used:**
+| Source | Dataset ID | Field used |
+|---|---|---|
+| 311 requests | `v6vf-nfxy` | `sr_type` |
+| Crime | `ijzp-q8t2` | `primary_type` |
+| Building permits | `ydr8-5enu` | `permit_type` |
+| Business licenses | `r5kz-chrr` | `license_description` |
+
+**Future use:** Join `*_topics_by_community.csv` files to Chicago legislation topics on `community_area + year` to compare resident complaints vs. alderperson legislation by neighborhood.
+
+---
+
+### `analyze_library_holds.py`
+Proxy analysis for CPL hold delivery time savings. Fetches three Chicago Open Data datasets (library locations `x8fc-8rcq`, 2026 holds filled `xgw6-5ftq`, 2024 circulation `utjc-493b`) and computes for each branch whether a nearby higher-circulation branch exists within walking distance.
+
+Run: `python analyze_library_holds.py`
+Output: console summary + `library_holds_analysis.csv`
+
+Key finding (Jan–Apr 2026): 25 of 80 CPL branches have a higher-circulation branch within a 30-min walk, accounting for 17.9% of total holds (78,539). If patrons walked there instead of waiting for hold delivery, they could save an estimated 3–7 days per hold.
+
+Caveats: uses circulation volume as a proxy for copy availability; no per-item data; patron home location not known; hold delivery time is assumed from CPL published estimate.
+
+---
+
 ## Static Files
 
 ```
@@ -152,7 +200,7 @@ prepopulate_2026.py   One-time script: pre-populates all DB caches for 2026 meet
 | Community areas | Loaded from `Boundaries_-_Community_Areas*.csv` at startup — name↔number mapping |
 | Overload handling | `_claude_create()` — 3 retries with 2s/4s backoff on HTTP 529, then Sonnet fallback |
 | Conversation logging | `upsert_turn()` — every turn stored in Supabase `sessions` table (JSONB) |
-| Multilingual | 7 languages (en, es, pl, zh, ar, tl, hi); `voyage-multilingual-2` handles queries natively |
+| Multilingual | 7 languages (en, es, pl, zh, ar, tl, hi) supported in backend/`UI_STRINGS`; `voyage-multilingual-2` handles queries natively. **Frontend dropdown temporarily restricted to English only** — non-English `<option>`s in `#lang-select` (`static/index.html`) are `disabled` with a "(English only for now)" note (`#lang-note`); re-enable by removing the `disabled` attributes and the note when other languages are ready to ship |
 
 ### Chicago Socrata datasets (data.cityofchicago.org)
 
