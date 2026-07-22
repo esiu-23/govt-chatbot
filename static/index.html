@@ -123,6 +123,12 @@
       opacity: .8;
       white-space: nowrap;
     }
+    #lang-note {
+      font-size: 0.68rem;
+      opacity: .75;
+      white-space: nowrap;
+      font-style: italic;
+    }
     #lang-select {
       background: rgba(255,255,255,.15);
       color: #fff;
@@ -142,6 +148,7 @@
     }
     #lang-select:hover  { background-color: rgba(255,255,255,.25); border-color: rgba(255,255,255,.7); }
     #lang-select option { background: #003F87; color: #fff; }
+    #lang-select option:disabled { color: rgba(255,255,255,.35); }
 
     /* ── Two-column layout ────────────────────────────────────────────── */
     #layout {
@@ -513,6 +520,7 @@
       header p  { display: none; }
       #info-toggle { display: block; }
       #lang-wrap label { display: none; }
+      #lang-note { display: none; }
       #lang-select { padding: 6px 28px 6px 8px; font-size: 0.85rem; }
 
       /* Layout: stack vertically */
@@ -934,15 +942,16 @@
 
   <div id="lang-wrap">
     <label for="lang-select" id="lang-label">Language</label>
-    <select id="lang-select">
+    <select id="lang-select" title="Only English is available at this time" aria-describedby="lang-note">
       <option value="en" selected>English</option>
-      <option value="es">Español</option>
-      <option value="pl">Polski</option>
-      <option value="zh">中文</option>
-      <option value="ar">العربية</option>
-      <option value="tl">Tagalog</option>
-      <option value="hi">हिन्दी</option>
+      <option value="es" disabled>Español</option>
+      <option value="pl" disabled>Polski</option>
+      <option value="zh" disabled>中文</option>
+      <option value="ar" disabled>العربية</option>
+      <option value="tl" disabled>Tagalog</option>
+      <option value="hi" disabled>हिन्दी</option>
     </select>
+    <span id="lang-note">(English only for now)</span>
   </div>
 </header>
 
